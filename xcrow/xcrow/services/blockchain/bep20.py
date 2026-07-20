@@ -1,16 +1,6 @@
-"""
-Detect USDT BEP20 deposits via direct BSC RPC (eth_getLogs).
 
-Why not BscScan?
-  - V1 (api.bscscan.com/api)          → hard-blocked, returns NOTOK "deprecated V1"
-  - Etherscan V2 (api.etherscan.io/v2) → requires paid plan for chainid=56 (BSC)
-
-Instead we query public BSC RPC nodes directly using eth_getLogs.
-No API key required. Multiple endpoints tried in order for resilience.
-"""
 from __future__ import annotations
 
-import asyncio
 from loguru import logger
 import aiohttp
 
@@ -20,7 +10,7 @@ BEP20_DECIMALS = 18
 # keccak256("Transfer(address,address,uint256)")
 _TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
 
-# Public BSC mainnet RPC endpoints — tried in order until one succeeds
+# Public BSC mainnet RPC endpoints - tried in order until one succeeds
 _BSC_RPC_NODES = [
     "https://bsc-dataseed1.binance.org/",
     "https://bsc-dataseed2.binance.org/",
@@ -84,14 +74,12 @@ async def check_bep20_deposit(address: str, min_amount: float, start_block: int 
         if from_block > latest_block:
             return None
 
-        # eth_getLogs has a node-level limit per request (~2 000–5 000 blocks).
-        # We chunk into 2 000-block windows so we never exceed it.
+        # eth_getLogs has a node-level limit (~2000-5000 blocks per request).
+        # Chunk into 2000-block windows to stay within public node limits.
         CHUNK = 2_000
-        chunks = range(from_block, latest_block + 1, CHUNK)
-
         padded_to = _pad_address(address)
 
-        for chunk_start in chunks:
+        for chunk_start in range(from_block, latest_block + 1, CHUNK):
             chunk_end = min(chunk_start + CHUNK - 1, latest_block)
 
             logs = await _try_nodes("eth_getLogs", [{
@@ -100,8 +88,8 @@ async def check_bep20_deposit(address: str, min_amount: float, start_block: int 
                 "address":   USDT_BEP20_CONTRACT,
                 "topics": [
                     _TRANSFER_TOPIC,
-                    None,          # from — any sender
-                    padded_to,     # to   — our deposit address only
+                    None,       # from - any sender
+                    padded_to,  # to   - our deposit address only
                 ],
             }])
 
@@ -112,34 +100,34 @@ async def check_bep20_deposit(address: str, min_amount: float, start_block: int 
             best_tx: dict | None = None
 
             for log in logs:
-                # data field holds the uint256 token amount (no indexed amount in ERC-20)
                 raw = int(log.get("data", "0x0"), 16)
                 amount = raw / (10 ** BEP20_DECIMALS)
                 total += amount
                 if best_tx is None:
-                    # topics[1] = from address (padded)
-                    from_raw = log.get("topics", [None, None])[1] or "0x"
-                    from_addr = "0x" + from_raw[-40:]
+                    from_raw = log.get("topics", [None, None, None])[1] or "0x"
                     best_tx = {
                         "tx_hash": log.get("transactionHash", ""),
                         "amount":  amount,
-                        "from":    from_addr,
+                        "from":    "0x" + from_raw[-40:],
                         "network": "USDT_BEP20",
                     }
 
             if total >= min_amount * 0.99:
                 logger.info(
-                    f"✅ BEP20 USDT confirmed: {total:.6f} USDT received "
-                    f"(expected {min_amount}) at {address} — tx {best_tx['tx_hash'][:16]}…"
+                    f"BEP20 USDT confirmed: {total:.6f} USDT received "
+                    f"(expected {min_amount}) at {address} "
+                    f"tx {best_tx['tx_hash'][:16]}..."
                 )
-                # Return the first matching tx; caller can re-query total if needed
-                best_tx["amount"] = total   # report cumulative total
+                best_tx["amount"] = total
                 return best_tx
 
-        logger.debug(f"BEP20: no qualifying USDT transfer found for {address} "
-                     f"(blocks {from_block}–{latest_block})")
+        logger.debug(
+            f"BEP20: no qualifying transfer for {address} "
+            f"(blocks {from_block}-{latest_block})"
+        )
         return None
 
     except Exception as exc:
         logger.error(f"check_bep20_deposit error for {address}: {exc}")
         return None
+EOF
