@@ -130,4 +130,3 @@ async def check_bep20_deposit(address: str, min_amount: float, start_block: int 
     except Exception as exc:
         logger.error(f"check_bep20_deposit error for {address}: {exc}")
         return None
-EOF
