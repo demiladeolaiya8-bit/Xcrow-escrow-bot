@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% set active = "dashboard" %}
+{% block title %}Dashboard — Xcrow Admin{% endblock %}
+{% block page_title %}Dashboard{% endblock %}
+{% block content %}
+<div class="row g-3 mb-4">
+  {% set stats = [
+    ("Total Deals",      total,     "fa-handshake",            "#7c5cfc","rgba(124,92,252,0.15)"),
+    ("Active Deals",     active,    "fa-bolt",                 "#22c55e","rgba(34,197,94,0.15)"),
+    ("Completed",        completed, "fa-circle-check",         "#38bdf8","rgba(56,189,248,0.15)"),
+    ("Awaiting Payment", pending,   "fa-clock",                "#f59e0b","rgba(245,158,11,0.15)"),
+    ("Releasing",        releasing, "fa-arrow-up-from-bracket","#e879f9","rgba(232,121,249,0.15)"),
+    ("Disputed",         disputed,  "fa-triangle-exclamation", "#ef4444","rgba(239,68,68,0.15)"),
+    ("Cancelled",        cancelled, "fa-ban",                  "#94a3b8","rgba(148,163,184,0.15)"),
+    ("Total Users",      users,     "fa-users",                "#5c8dfc","rgba(92,141,252,0.15)"),
+  ] %}
+  {% for label, value, icon, color, bg in stats %}
+  <div class="col-6 col-md-4 col-xl-3">
+    <div class="stat-card">
+      <div class="stat-icon" style="background:{{ bg }};color:{{ color }};"><i class="fa {{ icon }}"></i></div>
+      <div class="stat-value" style="color:{{ color }};">{{ value }}</div>
+      <div class="stat-label">{{ label }}</div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+<div class="row g-3 mb-4">
+  <div class="col-md-6">
+    <div class="card-xcrow">
+      <div class="d-flex align-items-center gap-3">
+        <div class="stat-icon" style="background:rgba(124,92,252,0.15);color:#7c5cfc;"><i class="fa fa-chart-line"></i></div>
+        <div>
+          <div style="font-size:1.5rem;font-weight:700;">{{ "%.4f"|format(volume) }} USDT</div>
+          <div style="color:var(--muted);font-size:0.8rem;">Total Escrow Volume (Completed)</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-6">
+    <div class="card-xcrow">
+      <div class="d-flex align-items-center gap-3">
+        <div class="stat-icon" style="background:rgba(34,197,94,0.15);color:#22c55e;"><i class="fa fa-coins"></i></div>
+        <div>
+          <div style="font-size:1.5rem;font-weight:700;">{{ "%.4f"|format(revenue) }} USDT</div>
+          <div style="color:var(--muted);font-size:0.8rem;">Platform Revenue Earned</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% if tickets > 0 %}
+<div class="mb-4" style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.3);border-radius:10px;padding:14px 18px;">
+  <i class="fa fa-ticket" style="color:#ef4444;"></i>
+  <strong>{{ tickets }}</strong> open support ticket{{ 's' if tickets != 1 else '' }} —
+  <a href="/panel/tickets" style="color:#ef4444;">View tickets</a>
+</div>
+{% endif %}
+<div class="card-xcrow">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h6 style="margin:0;font-weight:600;">Recent Deals</h6>
+    <a href="/panel/deals" style="font-size:0.82rem;">View all →</a>
+  </div>
+  <table class="table table-xcrow mb-0">
+    <thead><tr><th>Deal</th><th>Status</th><th>Amount</th><th>Network</th><th>Created</th></tr></thead>
+    <tbody>
+      {% for d in recent %}
+      <tr>
+        <td><a href="/panel/deals/{{ d.deal_uid }}">#{{ d.deal_uid }}</a></td>
+        <td><span class="badge-status s-{{ d.status }}">{{ d.status }}</span></td>
+        <td>{{ "%.4f"|format(d.total_amount or 0) }} {{ CRYPTO_SYMBOLS.get(d.crypto, d.crypto or '?') }}</td>
+        <td><small style="color:var(--muted);">{{ d.crypto or '—' }}</small></td>
+        <td><small style="color:var(--muted);">{{ d.created_at.strftime('%d %b %H:%M') }}</small></td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5" class="text-center" style="color:var(--muted);padding:30px;">No deals yet</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

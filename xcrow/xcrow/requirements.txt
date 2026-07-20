@@ -15,6 +15,11 @@ pydantic-settings==2.6.1
 fastapi==0.115.5
 uvicorn[standard]==0.32.1
 
+# Web admin dashboard
+jinja2==3.1.4
+python-multipart==0.0.12
+itsdangerous==2.2.0
+
 # HTTP client (blockchain APIs)
 aiohttp==3.10.10
 

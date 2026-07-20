@@ -15,21 +15,21 @@ class Base(DeclarativeBase):
 
 # ── Deal status enum ───────────────────────────────────────────────────────
 class DealStatus(str, PyEnum):
-    DRAFT             = "draft"               # group being created
-    STEP1_PENDING     = "step1_pending"       # waiting for seller
-    STEP2_PENDING     = "step2_pending"       # waiting for seller payout details
-    STEP3_PENDING     = "step3_pending"       # waiting for buyer
-    STEP4_PENDING     = "step4_pending"       # waiting for deal details
-    STEP5_PENDING     = "step5_pending"       # waiting for payment (deposit address shown)
-    AWAITING_PAYMENT  = "awaiting_payment"    # alias used by monitor
-    FUNDED            = "funded"              # deposit confirmed on-chain
-    IN_DELIVERY       = "in_delivery"         # seller notified, delivering
-    BUYER_CONFIRMING  = "buyer_confirming"    # buyer asked to confirm delivery
-    RELEASING         = "releasing"           # buyer confirmed, admin releasing funds
-    COMPLETED         = "completed"           # deal done
-    DISPUTED          = "disputed"            # dispute raised
-    REFUNDED          = "refunded"            # refunded to buyer
-    CANCELLED         = "cancelled"           # cancelled before funding
+    DRAFT             = "draft"
+    STEP1_PENDING     = "step1_pending"
+    STEP2_PENDING     = "step2_pending"
+    STEP3_PENDING     = "step3_pending"
+    STEP4_PENDING     = "step4_pending"
+    STEP5_PENDING     = "step5_pending"
+    AWAITING_PAYMENT  = "awaiting_payment"
+    FUNDED            = "funded"
+    IN_DELIVERY       = "in_delivery"
+    BUYER_CONFIRMING  = "buyer_confirming"
+    RELEASING         = "releasing"
+    COMPLETED         = "completed"
+    DISPUTED          = "disputed"
+    REFUNDED          = "refunded"
+    CANCELLED         = "cancelled"
 
 
 # ── Crypto enum ────────────────────────────────────────────────────────────
@@ -96,7 +96,7 @@ class Deal(Base):
 
     id:              Mapped[int]         = mapped_column(Integer, primary_key=True, autoincrement=True)
     deal_uid:        Mapped[str]         = mapped_column(String(12), unique=True, nullable=False)
-    group_id:        Mapped[int | None]  = mapped_column(BigInteger, unique=True)   # Telegram group chat_id
+    group_id:        Mapped[int | None]  = mapped_column(BigInteger, unique=True)
     creator_id:      Mapped[int]         = mapped_column(BigInteger, nullable=False)
 
     buyer_id:        Mapped[int | None]  = mapped_column(BigInteger, ForeignKey("users.telegram_id"))
@@ -105,19 +105,20 @@ class Deal(Base):
     buyer:           Mapped["User | None"] = relationship("User", foreign_keys=[buyer_id],  back_populates="deals_as_buyer")
     seller:          Mapped["User | None"] = relationship("User", foreign_keys=[seller_id], back_populates="deals_as_seller")
 
-    # Deal details (filled in Step 4)
+    # Deal details
     title:           Mapped[str | None]  = mapped_column(String(512))
-    amount:          Mapped[float | None] = mapped_column(Float)     # deal amount (what seller gets)
-    crypto:          Mapped[str | None]  = mapped_column(String(32)) # CryptoNetwork value
+    amount:          Mapped[float | None] = mapped_column(Float)
+    crypto:          Mapped[str | None]  = mapped_column(String(32))
+    fee_percent:     Mapped[float]       = mapped_column(Float, default=1.0)   # snapshot at deal creation
     fee_amount:      Mapped[float]       = mapped_column(Float, default=0.0)
-    total_amount:    Mapped[float]       = mapped_column(Float, default=0.0)  # what buyer sends
+    total_amount:    Mapped[float]       = mapped_column(Float, default=0.0)
 
     # Payment
     deposit_address: Mapped[str | None]  = mapped_column(String(128))
     wallet_index:    Mapped[int | None]  = mapped_column(Integer)
     tx_hash:         Mapped[str | None]  = mapped_column(String(128))
 
-    # Seller payout (filled in Step 2)
+    # Seller payout
     seller_wallet:   Mapped[str | None]  = mapped_column(String(128))
     seller_network:  Mapped[str | None]  = mapped_column(String(32))
 
@@ -126,6 +127,9 @@ class Deal(Base):
 
     # Pinned message
     pinned_msg_id:   Mapped[int | None]  = mapped_column(BigInteger)
+
+    # Block cursor — prevents BEP20/ETH monitor from rescanning from genesis
+    last_checked_block: Mapped[int]      = mapped_column(Integer, default=0)
 
     # Timestamps
     created_at:      Mapped[datetime]    = mapped_column(DateTime, server_default=func.now())
@@ -160,10 +164,47 @@ class Dispute(Base):
     deal_id:     Mapped[int]       = mapped_column(Integer, ForeignKey("deals.id"), nullable=False)
     opened_by:   Mapped[int]       = mapped_column(BigInteger, nullable=False)
     reason:      Mapped[str]       = mapped_column(Text, nullable=False)
-    status:      Mapped[str]       = mapped_column(String(32), default="open")  # open | resolved | closed
+    status:      Mapped[str]       = mapped_column(String(32), default="open")
     admin_id:    Mapped[int | None]  = mapped_column(BigInteger)
     resolution:  Mapped[str | None]  = mapped_column(Text)
     created_at:  Mapped[datetime]  = mapped_column(DateTime, server_default=func.now())
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime)
 
     deal: Mapped["Deal"] = relationship("Deal", back_populates="disputes")
+
+
+class PlatformSetting(Base):
+    """Key-value table for admin-configurable platform settings."""
+    __tablename__ = "platform_settings"
+
+    key:         Mapped[str]          = mapped_column(String(64), primary_key=True)
+    value:       Mapped[str]          = mapped_column(Text, nullable=False)
+    description: Mapped[str | None]   = mapped_column(String(256))
+    updated_at:  Mapped[datetime]     = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+class AuditLog(Base):
+    """Immutable log of all admin actions."""
+    __tablename__ = "audit_logs"
+
+    id:         Mapped[int]          = mapped_column(Integer, primary_key=True, autoincrement=True)
+    actor:      Mapped[str]          = mapped_column(String(128), nullable=False)   # "admin_web", "bot_monitor", etc.
+    action:     Mapped[str]          = mapped_column(String(128), nullable=False)
+    target:     Mapped[str | None]   = mapped_column(String(256))                   # deal_uid, user_id, etc.
+    detail:     Mapped[str | None]   = mapped_column(Text)
+    created_at: Mapped[datetime]     = mapped_column(DateTime, server_default=func.now())
+
+
+class SupportTicket(Base):
+    """User-submitted support tickets."""
+    __tablename__ = "support_tickets"
+
+    id:          Mapped[int]          = mapped_column(Integer, primary_key=True, autoincrement=True)
+    telegram_id: Mapped[int | None]   = mapped_column(BigInteger)
+    username:    Mapped[str | None]   = mapped_column(String(64))
+    subject:     Mapped[str]          = mapped_column(String(256), nullable=False)
+    message:     Mapped[str]          = mapped_column(Text, nullable=False)
+    status:      Mapped[str]          = mapped_column(String(32), default="open")   # open | resolved | closed
+    reply:       Mapped[str | None]   = mapped_column(Text)
+    created_at:  Mapped[datetime]     = mapped_column(DateTime, server_default=func.now())
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime)

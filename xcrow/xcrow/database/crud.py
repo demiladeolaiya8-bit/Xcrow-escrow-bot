@@ -1,19 +1,21 @@
 """All database operations for Xcrow."""
 from __future__ import annotations
 from datetime import datetime
-from typing import Optional, List
-from sqlalchemy import select, update
+from typing import Optional, List, Dict
+from sqlalchemy import select, update, func as sqlfunc
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from database.models import Deal, DealStatus, Transaction, Dispute, User
+from database.models import (
+    Deal, DealStatus, Transaction, Dispute, User,
+    PlatformSetting, AuditLog, SupportTicket,
+)
 from database.db import AsyncSessionLocal
 
 
 # ── Session helper ─────────────────────────────────────────────────────────
 
 async def _s() -> AsyncSession:  # type: ignore[return]
-    """Return a fresh session via context manager."""
     return AsyncSessionLocal()
 
 
@@ -65,6 +67,12 @@ async def get_all_users(limit: int = 50, offset: int = 0) -> List[User]:
     async with AsyncSessionLocal() as s:
         result = await s.execute(select(User).order_by(User.created_at.desc()).limit(limit).offset(offset))
         return list(result.scalars().all())
+
+
+async def count_users() -> int:
+    async with AsyncSessionLocal() as s:
+        result = await s.execute(select(sqlfunc.count(User.telegram_id)))
+        return result.scalar_one() or 0
 
 
 # ── Deals ──────────────────────────────────────────────────────────────────
@@ -150,7 +158,6 @@ async def get_all_deals(limit: int = 50, offset: int = 0) -> List[Deal]:
 
 
 async def count_deals_by_status(status: str) -> int:
-    from sqlalchemy import func as sqlfunc
     async with AsyncSessionLocal() as s:
         result = await s.execute(
             select(sqlfunc.count(Deal.id)).where(Deal.status == status)
@@ -158,9 +165,33 @@ async def count_deals_by_status(status: str) -> int:
         return result.scalar_one() or 0
 
 
+async def count_all_deals() -> int:
+    async with AsyncSessionLocal() as s:
+        result = await s.execute(select(sqlfunc.count(Deal.id)))
+        return result.scalar_one() or 0
+
+
+async def get_total_volume() -> float:
+    """Total amount across completed deals (what sellers received)."""
+    async with AsyncSessionLocal() as s:
+        result = await s.execute(
+            select(sqlfunc.coalesce(sqlfunc.sum(Deal.amount), 0))
+            .where(Deal.status == DealStatus.COMPLETED)
+        )
+        return float(result.scalar_one() or 0)
+
+
+async def get_total_fees_earned() -> float:
+    """Total platform fees from completed deals."""
+    async with AsyncSessionLocal() as s:
+        result = await s.execute(
+            select(sqlfunc.coalesce(sqlfunc.sum(Deal.fee_amount), 0))
+            .where(Deal.status == DealStatus.COMPLETED)
+        )
+        return float(result.scalar_one() or 0)
+
+
 async def get_next_wallet_index() -> int:
-    """Get the next unique HD wallet derivation index."""
-    from sqlalchemy import func as sqlfunc
     async with AsyncSessionLocal() as s:
         result = await s.execute(
             select(sqlfunc.count(Deal.id)).where(Deal.wallet_index.isnot(None))
@@ -189,6 +220,17 @@ async def tx_hash_exists(tx_hash: str) -> bool:
     async with AsyncSessionLocal() as s:
         result = await s.execute(select(Transaction).where(Transaction.tx_hash == tx_hash))
         return result.scalar_one_or_none() is not None
+
+
+async def get_all_transactions(limit: int = 50, offset: int = 0) -> List[Transaction]:
+    async with AsyncSessionLocal() as s:
+        result = await s.execute(
+            select(Transaction)
+            .options(selectinload(Transaction.deal))
+            .order_by(Transaction.created_at.desc())
+            .limit(limit).offset(offset)
+        )
+        return list(result.scalars().all())
 
 
 # ── Disputes ───────────────────────────────────────────────────────────────
@@ -224,3 +266,144 @@ async def get_open_disputes() -> List[Dispute]:
             .order_by(Dispute.created_at.asc())
         )
         return list(result.scalars().all())
+
+
+async def get_all_disputes(limit: int = 50, offset: int = 0) -> List[Dispute]:
+    async with AsyncSessionLocal() as s:
+        result = await s.execute(
+            select(Dispute)
+            .options(selectinload(Dispute.deal))
+            .order_by(Dispute.created_at.desc())
+            .limit(limit).offset(offset)
+        )
+        return list(result.scalars().all())
+
+
+# ── Platform settings ──────────────────────────────────────────────────────
+
+_DEFAULT_SETTINGS: list[tuple[str, str, str]] = [
+    ("fee_percent",           "1.0",                   "Platform fee percentage added on top of deal amount"),
+    ("owner_wallet_address",  "",                      "Wallet address where platform fees are sent"),
+    ("owner_wallet_network",  "USDT_BEP20",            "Network for the owner fee wallet"),
+    ("min_escrow_amount",     "1.0",                   "Minimum deal amount in USDT equivalent"),
+    ("max_escrow_amount",     "100000.0",              "Maximum deal amount in USDT equivalent"),
+    ("required_confirmations","1",                     "On-chain confirmations required to mark payment confirmed"),
+    ("supported_networks",    "USDT_TRC20,USDT_BEP20,ETH,BTC,SOL,TON,LTC", "Comma-separated list of enabled networks"),
+]
+
+
+async def seed_default_settings() -> None:
+    """Idempotently insert default settings rows (only if key doesn't exist yet)."""
+    async with AsyncSessionLocal() as s:
+        for key, value, description in _DEFAULT_SETTINGS:
+            existing = await s.get(PlatformSetting, key)
+            if existing is None:
+                s.add(PlatformSetting(key=key, value=value, description=description))
+        await s.commit()
+
+
+async def get_setting(key: str, default: str = "") -> str:
+    async with AsyncSessionLocal() as s:
+        row = await s.get(PlatformSetting, key)
+        return row.value if row else default
+
+
+async def set_setting(key: str, value: str) -> None:
+    async with AsyncSessionLocal() as s:
+        row = await s.get(PlatformSetting, key)
+        if row:
+            row.value = value
+            row.updated_at = datetime.utcnow()
+        else:
+            s.add(PlatformSetting(key=key, value=value))
+        await s.commit()
+
+
+async def get_all_settings() -> Dict[str, PlatformSetting]:
+    async with AsyncSessionLocal() as s:
+        result = await s.execute(select(PlatformSetting).order_by(PlatformSetting.key))
+        rows = result.scalars().all()
+        return {r.key: r for r in rows}
+
+
+async def get_fee_percent() -> float:
+    val = await get_setting("fee_percent", "1.0")
+    try:
+        return float(val)
+    except (ValueError, TypeError):
+        return 1.0
+
+
+async def fee_breakdown(amount: float) -> tuple[float, float]:
+    """Async version — reads live fee % from DB. Returns (fee_amount, total_buyer_pays)."""
+    pct = await get_fee_percent()
+    fee = round(amount * pct / 100, 6)
+    return fee, round(amount + fee, 6)
+
+
+# ── Audit log ──────────────────────────────────────────────────────────────
+
+async def create_audit_log(
+    actor: str, action: str,
+    target: str | None = None,
+    detail: str | None = None,
+) -> None:
+    async with AsyncSessionLocal() as s:
+        s.add(AuditLog(actor=actor, action=action, target=target, detail=detail))
+        await s.commit()
+
+
+async def get_audit_logs(limit: int = 100, offset: int = 0) -> List[AuditLog]:
+    async with AsyncSessionLocal() as s:
+        result = await s.execute(
+            select(AuditLog).order_by(AuditLog.created_at.desc()).limit(limit).offset(offset)
+        )
+        return list(result.scalars().all())
+
+
+# ── Support tickets ────────────────────────────────────────────────────────
+
+async def create_ticket(
+    telegram_id: int | None, username: str | None,
+    subject: str, message: str,
+) -> SupportTicket:
+    async with AsyncSessionLocal() as s:
+        t = SupportTicket(
+            telegram_id=telegram_id, username=username,
+            subject=subject, message=message,
+        )
+        s.add(t)
+        await s.commit()
+        await s.refresh(t)
+        return t
+
+
+async def get_all_tickets(limit: int = 50, offset: int = 0) -> List[SupportTicket]:
+    async with AsyncSessionLocal() as s:
+        result = await s.execute(
+            select(SupportTicket).order_by(SupportTicket.created_at.desc()).limit(limit).offset(offset)
+        )
+        return list(result.scalars().all())
+
+
+async def get_ticket(ticket_id: int) -> SupportTicket | None:
+    async with AsyncSessionLocal() as s:
+        return await s.get(SupportTicket, ticket_id)
+
+
+async def resolve_ticket(ticket_id: int, reply: str) -> None:
+    async with AsyncSessionLocal() as s:
+        await s.execute(
+            update(SupportTicket)
+            .where(SupportTicket.id == ticket_id)
+            .values(status="resolved", reply=reply, resolved_at=datetime.utcnow())
+        )
+        await s.commit()
+
+
+async def count_open_tickets() -> int:
+    async with AsyncSessionLocal() as s:
+        result = await s.execute(
+            select(sqlfunc.count(SupportTicket.id)).where(SupportTicket.status == "open")
+        )
+        return result.scalar_one() or 0

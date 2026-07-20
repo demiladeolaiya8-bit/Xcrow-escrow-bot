@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% set active = "payments" %}
+{% block title %}Payments — Xcrow Admin{% endblock %}
+{% block page_title %}Payment Transactions{% endblock %}
+{% block content %}
+<div class="card-xcrow">
+  <table class="table table-xcrow mb-3">
+    <thead><tr><th>#</th><th>Deal</th><th>TX Hash</th><th>Amount</th><th>Network</th><th>Confirmed</th><th>Date</th></tr></thead>
+    <tbody>
+      {% for tx in txs %}
+      <tr>
+        <td style="color:var(--muted);font-size:0.8rem;">{{ tx.id }}</td>
+        <td><a href="/panel/deals/{{ tx.deal.deal_uid }}">#{{ tx.deal.deal_uid }}</a></td>
+        <td><code style="font-size:0.75rem;">{{ (tx.tx_hash or '')[:18] }}…</code></td>
+        <td><strong>{{ "%.6f"|format(tx.amount) }}</strong> {{ tx.crypto }}</td>
+        <td style="font-size:0.82rem;color:var(--muted);">{{ tx.crypto }}</td>
+        <td>
+          {% if tx.confirmed %}<span class="badge-status s-funded">Confirmed</span>
+          {% else %}<span class="badge-status s-step5_pending">Pending</span>{% endif %}
+        </td>
+        <td style="color:var(--muted);font-size:0.8rem;">{{ tx.created_at.strftime('%d %b %H:%M') }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="7" class="text-center" style="color:var(--muted);padding:30px;">No transactions recorded</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% if txs|length >= 25 %}
+  <nav><ul class="pagination mb-0" style="font-size:0.85rem;">
+    {% if offset > 0 %}<li class="page-item"><a class="page-link" href="?offset={{ offset - 25 }}">‹ Prev</a></li>{% endif %}
+    <li class="page-item"><a class="page-link" href="?offset={{ offset + 25 }}">Next ›</a></li>
+  </ul></nav>
+  {% endif %}
+</div>
+{% endblock %}

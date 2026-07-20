@@ -1,5 +1,6 @@
 """Xcrow — centralised configuration. All values read from .env at startup."""
 from __future__ import annotations
+import secrets
 from typing import List
 from pydantic_settings import BaseSettings
 
@@ -15,13 +16,12 @@ class Settings(BaseSettings):
     WEBSITE_URL: str = ""
 
     # ── Database ──────────────────────────────────────────────────────────
-    # Docker Compose default; override in .env if running bare
     DATABASE_URL: str = "postgresql+asyncpg://xcrow:xcrowpass@postgres:5432/xcrow"
 
     # ── Blockchain APIs ───────────────────────────────────────────────────
-    TRONGRID_API_KEY: str = ""   # trongrid.io
-    BSCSCAN_API_KEY: str = ""    # bscscan.com
-    ETHERSCAN_API_KEY: str = ""  # etherscan.io
+    TRONGRID_API_KEY: str = ""
+    BSCSCAN_API_KEY: str = ""
+    ETHERSCAN_API_KEY: str = ""
 
     # ── HD wallet ─────────────────────────────────────────────────────────
     HD_MNEMONIC: str = ""
@@ -38,11 +38,12 @@ class Settings(BaseSettings):
     API_PORT: int = 8000
     API_SECRET_KEY: str = "xcrow-change-in-production"
 
-    # ── Escrow settings ───────────────────────────────────────────────────
+    # ── Web admin dashboard ───────────────────────────────────────────────
+    ADMIN_DASHBOARD_PASSWORD: str = "xcrow-admin-change-me"
+    DASHBOARD_SESSION_SECRET: str = secrets.token_hex(32)
+
+    # ── Escrow settings (fallback — live values stored in DB) ────────────
     ESCROW_FEE_PERCENT: float = 1.0
-    # buyer_pays  → fee added on top, buyer pays deal_amount + fee
-    # seller_pays → fee deducted, seller receives deal_amount - fee
-    # split       → fee split 50/50
     FEE_MODEL: str = "buyer_pays"
 
     # ── Monitoring ────────────────────────────────────────────────────────
@@ -68,12 +69,12 @@ class Settings(BaseSettings):
     def pyrogram_configured(self) -> bool:
         return bool(self.API_ID and self.API_HASH and self.PHONE_NUMBER)
 
-    def fee_breakdown(self, amount: float) -> tuple[float, float]:
-        """Return (fee_amount, total_buyer_pays) for a given deal amount."""
+    def fee_breakdown_sync(self, amount: float) -> tuple[float, float]:
+        """Sync fallback — use crud.fee_breakdown() (async, reads DB) in handlers."""
         fee = round(amount * self.ESCROW_FEE_PERCENT / 100, 6)
         if self.FEE_MODEL == "buyer_pays":
             return fee, round(amount + fee, 6)
-        return fee, amount  # seller_pays / split: buyer just sends amount
+        return fee, amount
 
 
 def validate_settings(s: Settings) -> None:

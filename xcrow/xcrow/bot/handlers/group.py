@@ -19,6 +19,8 @@ from bot.keyboards.kb import (
 from database.crud import (
     get_deal_by_group, get_deal_by_uid, update_deal,
     create_transaction, tx_hash_exists, create_dispute,
+    fee_breakdown as db_fee_breakdown, get_fee_percent,
+    create_audit_log, get_setting,
 )
 from database.models import DealStatus, CryptoNetwork, CRYPTO_LABELS, CRYPTO_SYMBOLS, AUTO_MONITOR_NETWORKS
 
@@ -37,7 +39,7 @@ def format_pinned(deal) -> str:
     if deal.amount:
         symbol = CRYPTO_SYMBOLS.get(deal.crypto, deal.crypto or "")
         amount_str = f"{deal.amount:,.4f} {symbol}"
-        fee_str    = f"{deal.fee_amount:,.4f} {symbol} ({settings.ESCROW_FEE_PERCENT}%)"
+        fee_str    = f"{deal.fee_amount:,.4f} {symbol} ({deal.fee_percent:.2f}%)"
         total_str  = f"{deal.total_amount:,.4f} {symbol}"
     else:
         amount_str = fee_str = total_str = "❓ Not set"
@@ -89,7 +91,7 @@ async def update_pinned(bot: Bot, deal) -> None:
             text=format_pinned(deal),
         )
     except Exception:
-        pass  # Message not modified or other non-fatal error
+        pass
 
 
 async def notify_admins(bot: Bot, text: str) -> None:
@@ -114,7 +116,7 @@ def validate_address(address: str, network: str) -> bool:
     }
     pat = patterns.get(network)
     if not pat:
-        return len(address) > 10  # unknown network — accept anything reasonable
+        return len(address) > 10
     return bool(re.match(pat, address))
 
 
@@ -124,19 +126,18 @@ def validate_address(address: str, network: str) -> bool:
 
 @router.my_chat_member(ChatMemberUpdatedFilter(member_status_changed=JOIN_TRANSITION))
 async def bot_added_to_group(update: ChatMemberUpdated, bot: Bot) -> None:
-    """Fires when bot is added to a group. Look up deal by group_id."""
     if update.chat.type not in ("group", "supergroup"):
         return
     group_id = update.chat.id
     deal = await get_deal_by_group(group_id)
     if deal is None:
-        return  # Not an xcrow group — ignore
+        return
     if deal.pinned_msg_id:
-        return  # Already set up
+        return
 
 
 # ══════════════════════════════════════════════════════════════════════════
-#  /register  — manual fallback when Pyrogram is not configured
+#  /register — manual fallback when Pyrogram is not configured
 # ══════════════════════════════════════════════════════════════════════════
 
 @router.message(Command("register"), F.chat.type.in_({"group", "supergroup"}))
@@ -155,9 +156,8 @@ async def cmd_register(message: Message, bot: Bot) -> None:
         return
 
     await update_deal(deal.id, group_id=message.chat.id, status=DealStatus.STEP1_PENDING)
-    deal = await get_deal_by_uid(uid)  # reload
+    deal = await get_deal_by_uid(uid)
 
-    # Pin the status message
     try:
         pinned = await bot.send_message(message.chat.id, format_pinned(deal))
         await bot.pin_chat_message(message.chat.id, pinned.message_id, disable_notification=True)
@@ -199,7 +199,6 @@ async def cb_reg_seller(callback: CallbackQuery, bot: Bot) -> None:
     user = callback.from_user
     await callback.answer()
 
-    # Save seller
     from database.crud import get_or_create_user
     await get_or_create_user(user.id, user.username, user.first_name)
     await update_deal(deal.id, seller_id=user.id, status=DealStatus.STEP2_PENDING)
@@ -248,7 +247,6 @@ async def cb_seller_network(callback: CallbackQuery, state: FSMContext) -> None:
         f"(The address where you want to receive payment)"
     )
 
-    # Save network choice and wait for address input
     await update_deal(deal.id, seller_network=network)
     await state.set_state(GroupDealStates.awaiting_seller_address)
     await state.update_data(deal_uid=uid)
@@ -264,7 +262,7 @@ async def msg_seller_address(message: Message, state: FSMContext, bot: Bot) -> N
     if not deal:
         return
     if message.from_user.id != deal.seller_id:
-        return  # Not the seller — ignore
+        return
 
     address = message.text.strip() if message.text else ""
 
@@ -328,7 +326,6 @@ async def cb_reg_buyer(callback: CallbackQuery, bot: Bot, state: FSMContext) -> 
     )
     await update_pinned(bot, deal)
 
-    # Set FSM state for the buyer so they can type the description
     await state.set_state(GroupDealStates.awaiting_deal_description)
     await state.update_data(deal_uid=uid)
 
@@ -416,12 +413,15 @@ async def cb_deal_crypto(callback: CallbackQuery, bot: Bot) -> None:
         await callback.answer("Only the Buyer selects the payment currency.", show_alert=True)
         return
 
-    fee, total = settings.fee_breakdown(deal.amount)
+    # Read live fee % from DB, snapshot it onto the deal
+    fee_pct = await get_fee_percent()
+    fee, total = await db_fee_breakdown(deal.amount)
     symbol = CRYPTO_SYMBOLS.get(network, network)
 
     await update_deal(
         deal.id,
         crypto=network,
+        fee_percent=fee_pct,
         fee_amount=fee,
         total_amount=total,
     )
@@ -432,17 +432,14 @@ async def cb_deal_crypto(callback: CallbackQuery, bot: Bot) -> None:
         f"📋 <b>Deal Summary — #{uid}</b>\n\n"
         f"📦 <b>Item:</b>    {deal.title}\n"
         f"💰 <b>Amount:</b>  {deal.amount:,.4f} {symbol}\n"
-        f"💸 <b>Fee:</b>     {fee:,.4f} {symbol} ({settings.ESCROW_FEE_PERCENT}%)\n"
+        f"💸 <b>Fee:</b>     {fee:,.4f} {symbol} ({fee_pct:.2f}%)\n"
         f"📨 <b>Total:</b>   {total:,.4f} {symbol}  ← Buyer sends this\n"
         f"🏦 <b>Network:</b> {CRYPTO_LABELS.get(network, network)}\n"
         f"👤 <b>Seller receives:</b> {deal.amount:,.4f} {symbol}\n\n"
         f"<b>Both parties must review and confirm.</b>"
     )
 
-    await callback.message.edit_text(
-        summary,
-        reply_markup=confirm_deal_kb(uid),
-    )
+    await callback.message.edit_text(summary, reply_markup=confirm_deal_kb(uid))
 
 
 @router.callback_query(F.data.startswith("confirm_deal:"))
@@ -469,7 +466,8 @@ async def cb_confirm_deal(callback: CallbackQuery, bot: Bot, state: FSMContext) 
 
     if action == "edit":
         await callback.answer("Please restart deal details entry.")
-        await update_deal(deal.id, title=None, amount=None, crypto=None, fee_amount=0, total_amount=0, status=DealStatus.STEP4_PENDING)
+        await update_deal(deal.id, title=None, amount=None, crypto=None,
+                          fee_amount=0, total_amount=0, status=DealStatus.STEP4_PENDING)
         deal = await get_deal_by_uid(uid)
         await state.set_state(GroupDealStates.awaiting_deal_description)
         await state.update_data(deal_uid=uid)
@@ -482,13 +480,10 @@ async def cb_confirm_deal(callback: CallbackQuery, bot: Bot, state: FSMContext) 
 
 
 async def _finalize_step4_and_show_payment(bot: Bot, callback: CallbackQuery, deal) -> None:
-    """Generate deposit address and show Step 5 payment instructions."""
     from services.wallet import wallet_service
     from services.qr import generate_qr_bytes
 
     uid = deal.deal_uid
-
-    # Get wallet index (deal.id is unique and sequential — safe to use as index)
     wallet_index = await _get_next_wallet_index()
     network = deal.crypto
 
@@ -519,18 +514,17 @@ async def _finalize_step4_and_show_payment(bot: Bot, callback: CallbackQuery, de
         f"<b>Step 5 of 5 — Escrow Payment</b>\n\n"
         f"📦 <b>Item:</b>    {deal.title}\n"
         f"💰 <b>Amount:</b>  {deal.amount:,.4f} {symbol}\n"
-        f"💸 <b>Fee ({settings.ESCROW_FEE_PERCENT}%):</b>  {deal.fee_amount:,.4f} {symbol}\n"
+        f"💸 <b>Fee ({deal.fee_percent:.2f}%):</b>  {deal.fee_amount:,.4f} {symbol}\n"
         f"━━━━━━━━━━━━━━━\n"
         f"📨 <b>SEND EXACTLY:</b>\n"
         f"<code>{total:,.4f} {symbol}</code>\n\n"
         f"🔗 <b>TO THIS ADDRESS:</b>\n"
         f"<code>{deposit_address}</code>\n\n"
         f"🌐 <b>Network:</b> {label}\n\n"
-        f"{'🤖 Payment is monitored automatically.' if is_auto else '⚠️ Manual confirmation required for this network. Contact support after sending.'}\n\n"
+        f"{'🤖 Payment is monitored automatically.' if is_auto else '⚠️ Manual confirmation required. Contact support after sending.'}\n\n"
         f"⚠️ Send the <b>exact amount</b> to the <b>correct network</b>."
     )
 
-    # Try to send QR code
     try:
         from aiogram.types import BufferedInputFile
         qr_bytes = generate_qr_bytes(deposit_address)
@@ -548,7 +542,6 @@ async def _finalize_step4_and_show_payment(bot: Bot, callback: CallbackQuery, de
         reply_markup=payment_actions_kb(uid),
     )
 
-    # Notify admins
     await notify_admins(
         bot,
         f"💼 <b>Deal {uid} awaiting payment</b>\n"
@@ -580,7 +573,6 @@ async def cb_check_payment(callback: CallbackQuery, bot: Bot) -> None:
 
     await callback.answer("🔄 Checking blockchain…")
 
-    # Trigger a one-off check via the monitor
     from services.blockchain.monitor import check_deal_once
     paid = await check_deal_once(deal, bot)
 
@@ -588,7 +580,7 @@ async def cb_check_payment(callback: CallbackQuery, bot: Bot) -> None:
         symbol = CRYPTO_SYMBOLS.get(deal.crypto, deal.crypto or "?")
         await callback.message.reply(
             f"⏳ Payment of <b>{deal.total_amount:,.4f} {symbol}</b> not detected yet.\n\n"
-            f"Please allow up to a few minutes for the transaction to be confirmed on-chain."
+            f"Please allow a few minutes for the transaction to confirm on-chain."
         )
 
 
@@ -750,7 +742,7 @@ async def msg_dispute_reason(message: Message, state: FSMContext, bot: Bot) -> N
 
 
 # ══════════════════════════════════════════════════════════════════════════
-#  Public function — called by the blockchain monitor when payment detected
+#  on_payment_confirmed — called by blockchain monitor
 # ══════════════════════════════════════════════════════════════════════════
 
 async def on_payment_confirmed(bot: Bot, deal, tx_hash: str, amount: float) -> None:
@@ -762,24 +754,72 @@ async def on_payment_confirmed(bot: Bot, deal, tx_hash: str, amount: float) -> N
     await update_pinned(bot, deal)
 
     symbol = CRYPTO_SYMBOLS.get(deal.crypto, deal.crypto or "?")
-    text = (
-        f"💰 <b>Escrow Funded!</b>\n\n"
-        f"Deposit confirmed: <b>{amount:,.4f} {symbol}</b>\n"
-        f"Transaction: <code>{tx_hash[:20]}…</code>\n\n"
-        f"<b>Seller</b> ({deal.seller.display_name if deal.seller else '?'}): "
-        f"You may now proceed with delivery.\n\n"
-        f"Once delivered, the Buyer will confirm receipt to release funds."
+    owner_wallet  = await get_setting("owner_wallet_address", "")
+    owner_network = await get_setting("owner_wallet_network", "USDT_BEP20")
+
+    # Immutable audit record
+    await create_audit_log(
+        actor="bot_monitor",
+        action="payment_confirmed",
+        target=deal.deal_uid,
+        detail=f"TX:{tx_hash} Amount:{amount} {symbol}",
     )
 
+    # Group notification
     if deal.group_id:
         await bot.send_message(
             deal.group_id,
-            text,
+            f"💰 <b>Escrow Funded!</b>\n\n"
+            f"Deposit confirmed: <b>{amount:,.4f} {symbol}</b>\n"
+            f"Transaction: <code>{tx_hash[:20]}…</code>\n\n"
+            f"<b>Seller</b> ({deal.seller.display_name if deal.seller else '?'}): "
+            f"You may now proceed with delivery.\n\n"
+            f"Once delivered, the Buyer will confirm receipt to release funds.",
             reply_markup=delivery_kb(deal.deal_uid),
         )
 
+    # Private DM to buyer
+    if deal.buyer_id:
+        try:
+            await bot.send_message(
+                deal.buyer_id,
+                f"✅ <b>Your escrow payment was received!</b>\n\n"
+                f"Deal: <code>{deal.deal_uid}</code>\n"
+                f"Amount: <b>{amount:,.4f} {symbol}</b>\n"
+                f"TX: <code>{tx_hash[:20]}…</code>\n\n"
+                f"The seller has been notified and will proceed with delivery. "
+                f"You'll be asked to confirm receipt once delivery is complete.",
+            )
+        except Exception:
+            pass
+
+    # Private DM to seller
+    if deal.seller_id:
+        try:
+            await bot.send_message(
+                deal.seller_id,
+                f"💼 <b>Funds are in escrow — proceed with delivery!</b>\n\n"
+                f"Deal: <code>{deal.deal_uid}</code>\n"
+                f"You will receive: <b>{deal.amount:,.4f} {symbol}</b>\n"
+                f"To: <code>{deal.seller_wallet or '—'}</code>\n\n"
+                f"Once the buyer confirms receipt, funds will be released to you.",
+            )
+        except Exception:
+            pass
+
+    # Admin DM with full release checklist
+    fee_str = f"{deal.fee_amount:,.6f} {symbol}" if deal.fee_amount else "—"
     await notify_admins(
         bot,
-        f"💰 <b>Deal {deal.deal_uid} funded</b>\n"
-        f"Amount: {amount} {symbol}\nTX: {tx_hash}",
+        f"💰 <b>Deal {deal.deal_uid} funded — Release Details</b>\n\n"
+        f"Buyer:  {deal.buyer.display_name if deal.buyer else '?'}\n"
+        f"Seller: {deal.seller.display_name if deal.seller else '?'}\n\n"
+        f"Deposited: {amount:,.6f} {symbol}\n"
+        f"TX: <code>{tx_hash}</code>\n\n"
+        f"📤 <b>When releasing:</b>\n"
+        f"→ Send <b>{deal.amount:,.6f} {symbol}</b> to seller:\n"
+        f"   <code>{deal.seller_wallet or '—'}</code> ({deal.seller_network or '—'})\n"
+        f"→ Send fee <b>{fee_str}</b> to owner wallet:\n"
+        f"   <code>{owner_wallet or 'NOT SET — configure at /panel/settings'}</code> ({owner_network})\n\n"
+        f"View in dashboard: /panel/deals/{deal.deal_uid}",
     )

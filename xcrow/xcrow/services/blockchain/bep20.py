@@ -1,6 +1,4 @@
-
 from __future__ import annotations
-
 from loguru import logger
 import aiohttp
 
@@ -10,7 +8,7 @@ BEP20_DECIMALS = 18
 # keccak256("Transfer(address,address,uint256)")
 _TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
 
-# Public BSC mainnet RPC endpoints - tried in order until one succeeds
+# Public BSC mainnet RPC endpoints — tried in order until one succeeds
 _BSC_RPC_NODES = [
     "https://bsc-dataseed1.binance.org/",
     "https://bsc-dataseed2.binance.org/",
@@ -24,12 +22,10 @@ _BSC_RPC_NODES = [
 
 
 def _pad_address(address: str) -> str:
-    """Pad a 20-byte address to a 32-byte hex topic (0x + 24 zeros + address)."""
     return "0x" + "0" * 24 + address.lower().removeprefix("0x")
 
 
 async def _rpc_call(session: aiohttp.ClientSession, url: str, method: str, params: list) -> object:
-    """Make one JSON-RPC 2.0 call. Raises on HTTP or RPC error."""
     payload = {"jsonrpc": "2.0", "id": 1, "method": method, "params": params}
     async with session.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=10)) as resp:
         data = await resp.json(content_type=None)
@@ -39,7 +35,6 @@ async def _rpc_call(session: aiohttp.ClientSession, url: str, method: str, param
 
 
 async def _try_nodes(method: str, params: list) -> object:
-    """Try each RPC node in order, returning the first successful result."""
     async with aiohttp.ClientSession() as session:
         for url in _BSC_RPC_NODES:
             try:
@@ -49,33 +44,35 @@ async def _try_nodes(method: str, params: list) -> object:
     raise RuntimeError("All BSC RPC nodes failed")
 
 
-async def check_bep20_deposit(address: str, min_amount: float, start_block: int = 0) -> dict | None:
+async def get_current_block() -> int:
+    """Return the current BSC block number."""
+    latest_hex: str = await _try_nodes("eth_blockNumber", [])
+    return int(latest_hex, 16)
+
+
+async def check_bep20_deposit(
+    address: str, min_amount: float, start_block: int = 0
+) -> dict | None:
     """
-    Scan the BSC chain for USDT BEP20 transfers to `address`.
+    Scan BSC for USDT BEP20 transfers to `address`.
 
-    Uses eth_getLogs with the ERC-20 Transfer event filtered to our deposit
-    address as the recipient topic. No explorer API key required.
+    Uses eth_getLogs with ERC-20 Transfer event — no API key needed.
+    Pass start_block = deal.last_checked_block to avoid rescanning from genesis.
 
-    Args:
-        address:     The deposit wallet address to monitor.
-        min_amount:  Minimum USDT amount to consider as payment (float, e.g. 10.0).
-        start_block: Only scan from this block onward (pass deal.last_checked_block
-                     to avoid re-scanning the whole chain on every poll).
-
-    Returns:
-        dict with tx_hash / amount / from / network on success, else None.
+    Returns dict with tx_hash/amount/from/network, or None.
     """
     try:
-        # 1. Get current block so we know where to scan up to
-        latest_hex: str = await _try_nodes("eth_blockNumber", [])
-        latest_block = int(latest_hex, 16)
+        latest_block = await get_current_block()
 
-        from_block = max(0, start_block)
+        # Scan last ~2000 blocks (~100 min on BSC) if no cursor set
+        if start_block == 0:
+            from_block = max(0, latest_block - 2000)
+        else:
+            from_block = start_block
+
         if from_block > latest_block:
             return None
 
-        # eth_getLogs has a node-level limit (~2000-5000 blocks per request).
-        # Chunk into 2000-block windows to stay within public node limits.
         CHUNK = 2_000
         padded_to = _pad_address(address)
 
@@ -88,8 +85,8 @@ async def check_bep20_deposit(address: str, min_amount: float, start_block: int 
                 "address":   USDT_BEP20_CONTRACT,
                 "topics": [
                     _TRANSFER_TOPIC,
-                    None,       # from - any sender
-                    padded_to,  # to   - our deposit address only
+                    None,        # from — any sender
+                    padded_to,   # to   — our deposit address only
                 ],
             }])
 
@@ -114,17 +111,13 @@ async def check_bep20_deposit(address: str, min_amount: float, start_block: int 
 
             if total >= min_amount * 0.99:
                 logger.info(
-                    f"BEP20 USDT confirmed: {total:.6f} USDT received "
-                    f"(expected {min_amount}) at {address} "
-                    f"tx {best_tx['tx_hash'][:16]}..."
+                    f"BEP20 USDT confirmed: {total:.6f} (expected {min_amount}) "
+                    f"at {address} tx {best_tx['tx_hash'][:16]}..."
                 )
                 best_tx["amount"] = total
                 return best_tx
 
-        logger.debug(
-            f"BEP20: no qualifying transfer for {address} "
-            f"(blocks {from_block}-{latest_block})"
-        )
+        logger.debug(f"BEP20: no qualifying transfer for {address} (blocks {from_block}-{latest_block})")
         return None
 
     except Exception as exc:

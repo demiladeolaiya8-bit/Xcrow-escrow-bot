@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% set active = "settings" %}
+{% block title %}Settings — Xcrow Admin{% endblock %}
+{% block page_title %}Platform Settings{% endblock %}
+{% block content %}
+{% if saved %}<div class="alert-success-xcrow mb-4"><i class="fa fa-circle-check"></i> Settings saved successfully.</div>{% endif %}
+<form method="post">
+<div class="row g-3">
+  <div class="col-lg-6">
+    <div class="card-xcrow">
+      <h6 style="font-weight:600;margin-bottom:18px;color:var(--accent);"><i class="fa fa-percent"></i> Fee Configuration</h6>
+      <div class="mb-3">
+        <label>Platform Fee (%)</label>
+        <input type="number" step="0.01" min="0" max="100" name="fee_percent" class="form-control form-control-xcrow mt-1"
+               value="{{ settings_map.get('fee_percent').value if settings_map.get('fee_percent') else '1.0' }}">
+        <small style="color:var(--muted);font-size:0.75rem;">1.0 = 1%. Buyer pays deal amount + fee on top.</small>
+      </div>
+      <div class="mb-3">
+        <label>Owner Wallet Address</label>
+        <input type="text" name="owner_wallet_address" class="form-control form-control-xcrow mt-1" placeholder="0x… or T…"
+               value="{{ settings_map.get('owner_wallet_address').value if settings_map.get('owner_wallet_address') else '' }}">
+        <small style="color:var(--muted);font-size:0.75rem;">Platform fees are sent here after each completed deal.</small>
+      </div>
+      <div class="mb-3">
+        <label>Owner Wallet Network</label>
+        <select name="owner_wallet_network" class="form-control form-control-xcrow mt-1">
+          {% set cur = settings_map.get('owner_wallet_network').value if settings_map.get('owner_wallet_network') else 'USDT_BEP20' %}
+          {% for net in ['USDT_BEP20','USDT_TRC20','ETH','BTC','SOL','TON','LTC'] %}
+          <option value="{{ net }}" {% if cur == net %}selected{% endif %}>{{ net }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-6">
+    <div class="card-xcrow">
+      <h6 style="font-weight:600;margin-bottom:18px;color:var(--accent);"><i class="fa fa-sliders"></i> Deal Limits</h6>
+      <div class="mb-3">
+        <label>Minimum Escrow Amount (USDT)</label>
+        <input type="number" step="0.01" min="0" name="min_escrow_amount" class="form-control form-control-xcrow mt-1"
+               value="{{ settings_map.get('min_escrow_amount').value if settings_map.get('min_escrow_amount') else '1.0' }}">
+      </div>
+      <div class="mb-3">
+        <label>Maximum Escrow Amount (USDT)</label>
+        <input type="number" step="0.01" min="0" name="max_escrow_amount" class="form-control form-control-xcrow mt-1"
+               value="{{ settings_map.get('max_escrow_amount').value if settings_map.get('max_escrow_amount') else '100000.0' }}">
+      </div>
+      <div class="mb-3">
+        <label>Required On-chain Confirmations</label>
+        <input type="number" step="1" min="1" name="required_confirmations" class="form-control form-control-xcrow mt-1"
+               value="{{ settings_map.get('required_confirmations').value if settings_map.get('required_confirmations') else '1' }}">
+      </div>
+    </div>
+  </div>
+  <div class="col-12">
+    <div class="card-xcrow">
+      <h6 style="font-weight:600;margin-bottom:16px;color:var(--accent);"><i class="fa fa-network-wired"></i> Supported Networks</h6>
+      <label>Enabled Networks (comma-separated)</label>
+      <input type="text" name="supported_networks" class="form-control form-control-xcrow mt-1"
+             value="{{ settings_map.get('supported_networks').value if settings_map.get('supported_networks') else 'USDT_TRC20,USDT_BEP20,ETH,BTC,SOL,TON,LTC' }}">
+      <small style="color:var(--muted);font-size:0.75rem;">Available: USDT_TRC20, USDT_BEP20, ETH, BTC, SOL, TON, LTC</small>
+    </div>
+  </div>
+</div>
+<div class="mt-4"><button type="submit" class="btn btn-accent px-4"><i class="fa fa-floppy-disk"></i> Save Settings</button></div>
+</form>
+<div class="card-xcrow mt-4">
+  <h6 style="font-weight:600;margin-bottom:12px;">All Settings (current values)</h6>
+  <table class="table table-xcrow mb-0">
+    <thead><tr><th>Key</th><th>Value</th><th>Description</th><th>Updated</th></tr></thead>
+    <tbody>
+      {% for key, row in settings_map.items() %}
+      <tr>
+        <td><code>{{ key }}</code></td>
+        <td>{{ row.value }}</td>
+        <td style="color:var(--muted);font-size:0.8rem;">{{ row.description or '—' }}</td>
+        <td style="color:var(--muted);font-size:0.8rem;">{{ row.updated_at.strftime('%d %b %H:%M') }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

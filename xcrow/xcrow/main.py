@@ -32,18 +32,23 @@ validate_settings(settings)
 
 import uvicorn
 from database.db import init_db
+from database.crud import seed_default_settings
 from bot.bot import create_bot, create_dispatcher
 from services.blockchain.monitor import BlockchainMonitor
 
 
 async def main() -> None:
     logger.info("=" * 55)
-    logger.info("  ⚡  XCROW Escrow Bot — starting up")
+    logger.info("  ⚡  XCROW Escrow Bot v2 — starting up")
     logger.info("=" * 55)
 
     # Init database (creates tables if first run)
     await init_db()
     logger.info("✅  Database ready")
+
+    # Seed platform settings with defaults (idempotent — safe to run every boot)
+    await seed_default_settings()
+    logger.info("✅  Platform settings seeded")
 
     # Telegram bot
     bot = create_bot()
@@ -52,7 +57,7 @@ async def main() -> None:
     # Blockchain monitor
     monitor = BlockchainMonitor(bot)
 
-    # Admin FastAPI app
+    # Admin FastAPI app (includes web dashboard at /panel)
     uvicorn_config = uvicorn.Config(
         "api.app:app",
         host=settings.API_HOST,
@@ -61,7 +66,8 @@ async def main() -> None:
         access_log=False,
     )
     api_server = uvicorn.Server(uvicorn_config)
-    logger.info(f"✅  Admin API → http://{settings.API_HOST}:{settings.API_PORT}/docs")
+    logger.info(f"✅  Admin API  → http://{settings.API_HOST}:{settings.API_PORT}/docs")
+    logger.info(f"✅  Dashboard  → http://{settings.API_HOST}:{settings.API_PORT}/panel")
 
     # Register bot commands with Telegram
     from bot.commands import set_bot_commands
