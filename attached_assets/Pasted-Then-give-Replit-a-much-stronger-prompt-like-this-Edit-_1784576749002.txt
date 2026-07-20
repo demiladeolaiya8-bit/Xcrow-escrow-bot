@@ -1,0 +1,194 @@
+Then give Replit a much stronger prompt like this:
+
+
+---
+
+Edit My Existing Xcrow Escrow Project Directly
+
+I do NOT want code snippets.
+
+I do NOT want GitHub patches.
+
+I do NOT want files to copy manually.
+
+I have connected my existing Xcrow escrow project to Replit.
+
+Open the project, modify the files directly, save the changes, and keep the project working.
+
+Do not rebuild the bot.
+
+Keep everything that already works:
+
+Telegram bot
+
+Docker
+
+PostgreSQL
+
+Group creation
+
+Deposit address generation
+
+QR codes
+
+VPS deployment
+
+
+Only improve and fix the project.
+
+Fix the payment detection
+
+Replace the current payment monitoring with a production-ready system that:
+
+Detects USDT BEP20 deposits automatically.
+
+Works 24/7.
+
+Automatically reconnects after network failures.
+
+Never depends on deprecated APIs.
+
+Supports multiple simultaneous deals.
+
+Detects the exact payment amount.
+
+Marks deals as paid automatically.
+
+
+Build a professional Admin Dashboard
+
+Create a secure web admin panel where I can:
+
+Dashboard
+
+Total escrow volume
+
+Total deals
+
+Active deals
+
+Completed deals
+
+Cancelled deals
+
+Revenue earned
+
+Pending payments
+
+Online status
+
+
+Owner Settings
+
+Allow me to change:
+
+Platform fee (%)
+
+Owner wallet address
+
+Supported networks
+
+Minimum escrow amount
+
+Maximum escrow amount
+
+Required confirmations
+
+
+No code changes should be needed to update these settings.
+
+Platform Fee
+
+The buyer pays:
+
+Deal Amount + Platform Fee
+
+Example:
+
+100 USDT deal
+
+1% fee
+
+Buyer pays 101 USDT
+
+Seller receives 100 USDT
+
+Owner wallet automatically receives 1 USDT.
+
+The percentage must be editable from the admin panel.
+
+The owner wallet address must also be editable from the admin panel.
+
+Payment Release
+
+After the buyer confirms delivery:
+
+Automatically:
+
+Send seller's funds.
+
+Send owner fee to owner wallet.
+
+Update the database.
+
+Notify buyer.
+
+Notify seller.
+
+Notify admin.
+
+
+Admin Features
+
+Add pages for:
+
+Dashboard
+
+Deals
+
+Payments
+
+Wallets
+
+Users
+
+Fee Settings
+
+Owner Wallet
+
+Logs
+
+Support Tickets
+
+Statistics
+
+
+Security
+
+Secure login
+
+Session authentication
+
+Admin-only access
+
+CSRF protection
+
+Audit logs
+
+
+Deployment
+
+Keep Docker working.
+
+Keep VPS compatibility.
+
+Keep the Telegram bot running 24/7.
+
+Do not remove existing functionality.
+
+When you finish, save all changes directly in the Replit project so I can simply redeploy it to my VPS without manually copying code.
+
+
+---
+
+One important note: Replit can only edit the project if the project is actually inside Replit (imported from GitHub or uploaded). It cannot directly edit the copy that's currently running on your VPS unless you first import or sync that project into Replit.
