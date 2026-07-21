@@ -80,7 +80,7 @@ async def _w3(rpcs: list[str]):
         try:
             w = AsyncWeb3(AsyncWeb3.AsyncHTTPProvider(url, request_kwargs={"timeout": 12}))
             _inject_poa(w)
-            _ = await asyncio.wait_for(w.eth.block_number, timeout=10)
+            _ = await asyncio.wait_for(w.eth.block_number(), timeout=10)
             return w
         except Exception as e:
             last = e
@@ -93,7 +93,7 @@ async def _send_bnb(gas_private_key: str, to: str, amount_bnb: float) -> str:
     w3 = await _w3(_BSC_RPCS)
     acct = w3.eth.account.from_key(gas_private_key)
     nonce = await w3.eth.get_transaction_count(acct.address)
-    gas_price = int((await w3.eth.gas_price) * 1.15)
+    gas_price = int((await w3.eth.gas_price()) * 1.15)
     tx = {
         "to": AsyncWeb3.to_checksum_address(to),
         "value": w3.to_wei(amount_bnb, "ether"),
@@ -118,7 +118,7 @@ async def _send_bep20_usdt(private_key: str, to: str, amount: float) -> str:
     )
     amount_raw = int(amount * 10 ** 18)
     nonce = await w3.eth.get_transaction_count(acct.address)
-    gas_price = int((await w3.eth.gas_price) * 1.15)
+    gas_price = int((await w3.eth.gas_price()) * 1.15)
     tx = await contract.functions.transfer(
         AsyncWeb3.to_checksum_address(to), amount_raw
     ).build_transaction({
@@ -139,7 +139,7 @@ async def _send_eth(private_key: str, to: str, amount: float) -> str:
     w3 = await _w3(_ETH_RPCS)
     acct = w3.eth.account.from_key(private_key)
     nonce = await w3.eth.get_transaction_count(acct.address)
-    gas_price = int((await w3.eth.gas_price) * 1.15)
+    gas_price = int((await w3.eth.gas_price()) * 1.15)
     tx = {
         "to": AsyncWeb3.to_checksum_address(to),
         "value": w3.to_wei(amount, "ether"),
