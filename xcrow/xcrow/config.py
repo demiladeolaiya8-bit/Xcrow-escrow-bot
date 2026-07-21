@@ -42,12 +42,15 @@ class Settings(BaseSettings):
     ADMIN_DASHBOARD_PASSWORD: str = "xcrow-admin-change-me"
     DASHBOARD_SESSION_SECRET: str = secrets.token_hex(32)
 
-    # ── Auto-release gas wallet ───────────────────────────────────────────
-    # Private key (hex) of a wallet that holds BNB (for BSC deals) and
-    # TRX (for Tron deals) to pay gas when auto-releasing escrow funds.
-    # The same key works for both chains (different address formats, same bytes).
-    # Leave empty to disable auto-release (admin notified for manual release).
+    # ── Auto-release gas wallets ──────────────────────────────────────────
+    # BSC/ETH gas wallet — export from SafePal → BNB Chain → Private Key
+    # Must hold BNB (~0.05 covers ~25 deals) for BSC gas fees.
     GAS_WALLET_PRIVATE_KEY: str = ""
+
+    # Tron gas wallet — export from SafePal → Tron → Private Key
+    # Must hold TRX (~500 covers ~25 deals) for TRC20 energy fees.
+    # If left empty, GAS_WALLET_PRIVATE_KEY is used for Tron as well.
+    GAS_WALLET_TRC_PRIVATE_KEY: str = ""
 
     # ── Escrow settings (fallback — live values stored in DB) ────────────
     ESCROW_FEE_PERCENT: float = 1.0

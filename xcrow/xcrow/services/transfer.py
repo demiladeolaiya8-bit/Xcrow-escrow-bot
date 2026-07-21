@@ -9,8 +9,8 @@ When buyer confirms delivery the bot:
 5. Marks the deal COMPLETED and notifies all parties
 
 Requires in .env:
-  GAS_WALLET_PRIVATE_KEY=<private key hex of a wallet with BNB + TRX for gas>
-  (The same key works for both BSC and Tron — different address format, same bytes.)
+  GAS_WALLET_PRIVATE_KEY      = SafePal → BNB Chain private key  (needs BNB for gas)
+  GAS_WALLET_TRC_PRIVATE_KEY  = SafePal → Tron private key       (needs TRX for energy)
 
 Supported networks for auto-release: USDT_BEP20, USDT_TRC20, ETH
 BTC / SOL / TON / LTC still require manual admin release.
@@ -214,16 +214,22 @@ async def auto_release_deal(deal, bot) -> bool:
         await notify_admins(bot, f"❌ Auto-release {uid}: HD_MNEMONIC missing. Manual release needed.")
         return False
 
-    gas_key = settings.GAS_WALLET_PRIVATE_KEY.strip()
+    # Pick the right gas wallet key per network
+    # BSC/ETH → GAS_WALLET_PRIVATE_KEY  (SafePal → BNB Chain)
+    # TRC20   → GAS_WALLET_TRC_PRIVATE_KEY (SafePal → Tron), falls back to BSC key
+    bsc_gas_key = settings.GAS_WALLET_PRIVATE_KEY.strip()
+    trc_gas_key = (settings.GAS_WALLET_TRC_PRIVATE_KEY or "").strip() or bsc_gas_key
+
+    gas_key = trc_gas_key if net == CryptoNetwork.USDT_TRC20 else bsc_gas_key
+
     if not gas_key:
-        # Gas wallet not configured — tell admin and fall back gracefully
-        logger.warning(f"GAS_WALLET_PRIVATE_KEY not set — manual release for deal {uid}")
+        logger.warning(f"No gas wallet key configured — manual release for deal {uid}")
         owner_wallet  = await get_setting("owner_wallet_address", "")
-        owner_network = await get_setting("owner_wallet_network", "USDT_BEP20")
         await notify_admins(
             bot,
             f"🔔 <b>Manual Release Required — Deal {uid}</b>\n\n"
-            f"(Set GAS_WALLET_PRIVATE_KEY in .env to enable auto-release)\n\n"
+            f"Set GAS_WALLET_PRIVATE_KEY (and GAS_WALLET_TRC_PRIVATE_KEY for Tron) "
+            f"in .env to enable auto-release.\n\n"
             f"Seller: <code>{deal.seller_wallet}</code> ({deal.seller_network})\n"
             f"Amount: {deal.amount:,.6f} {symbol}\n"
             f"Fee:    {deal.fee_amount:,.6f} {symbol} → <code>{owner_wallet or 'NOT SET'}</code>\n\n"
