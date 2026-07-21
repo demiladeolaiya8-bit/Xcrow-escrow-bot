@@ -616,19 +616,20 @@ async def cb_cancel_deal(callback: CallbackQuery, bot: Bot) -> None:
 
 @router.callback_query(F.data.startswith("delivery_ok:"))
 async def cb_delivery_ok(callback: CallbackQuery, bot: Bot) -> None:
+    from bot.bot import safe_answer
     uid = callback.data.split(":", 1)[1]
     deal = await get_deal_by_uid(uid)
     if not deal:
-        await callback.answer("Deal not found.", show_alert=True)
+        await safe_answer(callback, "Deal not found.", show_alert=True)
         return
     if callback.from_user.id != deal.buyer_id:
-        await callback.answer("Only the Buyer can confirm delivery.", show_alert=True)
+        await safe_answer(callback, "Only the Buyer can confirm delivery.", show_alert=True)
         return
     if deal.status not in (DealStatus.FUNDED, DealStatus.IN_DELIVERY, DealStatus.BUYER_CONFIRMING):
-        await callback.answer("Deal is not in the delivery stage.", show_alert=True)
+        await safe_answer(callback, "Deal is not in the delivery stage.", show_alert=True)
         return
 
-    await callback.answer("✅ Delivery confirmed!")
+    await safe_answer(callback, "✅ Delivery confirmed!")
     await update_deal(deal.id, status=DealStatus.RELEASING)
     deal = await get_deal_by_uid(uid)
 
