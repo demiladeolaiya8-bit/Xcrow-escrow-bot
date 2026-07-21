@@ -263,47 +263,80 @@ async def auto_release_deal(deal, bot) -> bool:
     seller_tx: str = ""
     fee_tx:    str = ""
 
+    seller_network = deal.seller_network or deal.crypto
+    cross_network  = seller_network != net  # buyer paid on net, seller wants seller_network
+
+    if cross_network:
+        logger.info(
+            f"Auto-release {uid}: cross-network deal "
+            f"(deposit={net} → payout={seller_network}). "
+            f"Sending from gas wallet on seller's network."
+        )
+
     try:
-        # ── Step 1: Feed gas into deposit address ─────────────────────────
-        if net == CryptoNetwork.USDT_BEP20:
-            logger.info(f"Auto-release {uid}: sending BNB gas to deposit address…")
-            await _send_bnb(gas_key, deal.deposit_address, 0.002)
-            await asyncio.sleep(8)   # Wait ~2 BSC blocks
+        # ── Step 1 (same-network only): Feed gas into deposit address ─────
+        if not cross_network:
+            if net == CryptoNetwork.USDT_BEP20:
+                logger.info(f"Auto-release {uid}: sending BNB gas to deposit address…")
+                await _send_bnb(gas_key, deal.deposit_address, 0.002)
+                await asyncio.sleep(8)
 
-        elif net == CryptoNetwork.USDT_TRC20:
-            logger.info(f"Auto-release {uid}: sending TRX gas to deposit address…")
-            tron_deposit = _tron_address_from_key(deposit_key)
-            await _send_trx(gas_key, tron_deposit, 20)
-            await asyncio.sleep(6)   # Wait ~2 Tron blocks
+            elif net == CryptoNetwork.USDT_TRC20:
+                logger.info(f"Auto-release {uid}: sending TRX gas to deposit address…")
+                tron_deposit = _tron_address_from_key(deposit_key)
+                await _send_trx(gas_key, tron_deposit, 20)
+                await asyncio.sleep(6)
 
-        elif net == CryptoNetwork.ETH:
-            logger.info(f"Auto-release {uid}: sending ETH gas to deposit address…")
-            await _send_eth(gas_key, deal.deposit_address, 0.001)
-            await asyncio.sleep(20)  # ETH blocks are slower
+            elif net == CryptoNetwork.ETH:
+                logger.info(f"Auto-release {uid}: sending ETH gas to deposit address…")
+                await _send_eth(gas_key, deal.deposit_address, 0.001)
+                await asyncio.sleep(20)
 
-        else:
-            raise RuntimeError(f"Network {net} not supported for auto-release")
+            else:
+                raise RuntimeError(f"Deposit network {net} not supported for auto-release")
 
         # ── Step 2: Send USDT to seller ───────────────────────────────────
-        logger.info(f"Auto-release {uid}: sending {deal.amount} {symbol} to seller {deal.seller_wallet}")
+        # Cross-network → send from gas wallet on seller's preferred network
+        # Same-network  → sweep from deposit address
+        logger.info(f"Auto-release {uid}: sending {deal.amount} {symbol} to {deal.seller_wallet} on {seller_network}")
 
-        if net == CryptoNetwork.USDT_BEP20:
-            seller_tx = await _send_bep20_usdt(deposit_key, deal.seller_wallet, deal.amount)
-        elif net == CryptoNetwork.USDT_TRC20:
-            seller_tx = await _send_trc20_usdt(deposit_key, deal.seller_wallet, deal.amount)
-        elif net == CryptoNetwork.ETH:
-            seller_tx = await _send_eth(deposit_key, deal.seller_wallet, deal.amount)
+        if cross_network:
+            # Gas wallet must hold USDT on seller_network
+            if seller_network == CryptoNetwork.USDT_TRC20:
+                trc_key = (settings.GAS_WALLET_TRC_PRIVATE_KEY or "").strip() or bsc_gas_key
+                seller_tx = await _send_trc20_usdt(trc_key, deal.seller_wallet, deal.amount)
+            elif seller_network == CryptoNetwork.USDT_BEP20:
+                seller_tx = await _send_bep20_usdt(bsc_gas_key, deal.seller_wallet, deal.amount)
+            else:
+                raise RuntimeError(f"Cross-network payout to {seller_network} not supported")
+        else:
+            # Same network: sweep from deposit address
+            if net == CryptoNetwork.USDT_BEP20:
+                seller_tx = await _send_bep20_usdt(deposit_key, deal.seller_wallet, deal.amount)
+            elif net == CryptoNetwork.USDT_TRC20:
+                seller_tx = await _send_trc20_usdt(deposit_key, deal.seller_wallet, deal.amount)
+            elif net == CryptoNetwork.ETH:
+                seller_tx = await _send_eth(deposit_key, deal.seller_wallet, deal.amount)
 
         logger.info(f"Auto-release {uid}: seller TX = {seller_tx}")
 
         # ── Step 3: Send fee to owner wallet ──────────────────────────────
+        # Fee always comes from the deposit address (on deposit network)
         if deal.fee_amount and deal.fee_amount > 0 and owner_wallet:
             try:
-                await asyncio.sleep(3)   # brief pause between transactions
-                if owner_network == CryptoNetwork.USDT_BEP20:
+                await asyncio.sleep(3)
+                if net == CryptoNetwork.USDT_BEP20:
+                    # For cross-network BEP20 deposits: need gas first if not already sent
+                    if cross_network:
+                        await _send_bnb(bsc_gas_key, deal.deposit_address, 0.002)
+                        await asyncio.sleep(8)
                     fee_key = wallet_service.derive_private_key(CryptoNetwork.USDT_BEP20, deal.wallet_index)
                     fee_tx = await _send_bep20_usdt(fee_key, owner_wallet, deal.fee_amount)
-                elif owner_network == CryptoNetwork.USDT_TRC20:
+                elif net == CryptoNetwork.USDT_TRC20:
+                    if cross_network:
+                        tron_deposit = _tron_address_from_key(deposit_key)
+                        await _send_trx(trc_gas_key, tron_deposit, 20)
+                        await asyncio.sleep(6)
                     fee_key = wallet_service.derive_private_key(CryptoNetwork.USDT_TRC20, deal.wallet_index)
                     fee_tx = await _send_trc20_usdt(fee_key, owner_wallet, deal.fee_amount)
                 logger.info(f"Auto-release {uid}: fee TX = {fee_tx}")
