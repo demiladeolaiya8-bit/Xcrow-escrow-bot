@@ -13,6 +13,7 @@ Requires in .env:
 """
 from __future__ import annotations
 import asyncio
+import re
 import struct
 from datetime import datetime
 from loguru import logger
@@ -46,27 +47,101 @@ _ETH_RPCS = [
 ]
 
 
-# ── Raw JSON-RPC helper (aiohttp — no web3.py) ─────────────────────────────
+# ── Key sanitization ───────────────────────────────────────────────────────
+
+def _sanitize_key(key: str) -> str:
+    """
+    Normalize a private key string to a clean '0x'+64-hex-char format.
+
+    Handles:
+    - Leading/trailing whitespace and embedded whitespace
+    - Optional '0x' prefix
+    - Non-hex garbage characters (copy-paste artifacts)
+    - 66-char keys (33-byte SafePal exports) → take rightmost 64 chars
+    """
+    # Strip all whitespace (including invisible Unicode spaces)
+    k = re.sub(r'\s+', '', key)
+    # Remove 0x prefix if present
+    if k.lower().startswith('0x'):
+        k = k[2:]
+    # Keep only valid hex characters
+    k = re.sub(r'[^0-9a-fA-F]', '', k)
+    # If 66 chars (33 bytes — some SafePal exports include a compression flag byte)
+    # drop the leading byte; the last 64 chars are the actual 32-byte private key.
+    if len(k) > 64:
+        k = k[-64:]
+    if len(k) != 64:
+        raise ValueError(
+            f"Private key has {len(k)} hex chars after sanitization (expected 64). "
+            "Check GAS_WALLET_PRIVATE_KEY in your .env."
+        )
+    return '0x' + k
+
+
+# ── Raw JSON-RPC helper (aiohttp + urllib fallback) ────────────────────────
+
+def _rpc_sync_urllib(url: str, method: str, params: list):
+    """Synchronous fallback using stdlib urllib (no SSL issues)."""
+    import json
+    from urllib.request import Request, urlopen
+    body = json.dumps({"jsonrpc": "2.0", "id": 1, "method": method, "params": params}).encode()
+    req  = Request(url, data=body, headers={"Content-Type": "application/json"})
+    with urlopen(req, timeout=15) as r:
+        data = json.loads(r.read())
+    if "error" in data:
+        raise RuntimeError(f"RPC error: {data['error']}")
+    return data["result"]
+
 
 async def _rpc(rpcs: list[str], method: str, params: list):
-    """Call a JSON-RPC method, trying each RPC endpoint in turn."""
+    """
+    Call a JSON-RPC method, trying each RPC endpoint in turn.
+    Uses aiohttp with ssl=False (required on many datacenter IPs).
+    Falls back to synchronous urllib if aiohttp fails entirely.
+    """
     import aiohttp
-    last = RuntimeError("all RPCs failed")
+    import ssl
+    connector = aiohttp.TCPConnector(ssl=False)
+    last: Exception = RuntimeError("all RPCs failed")
+    tried_urls: list[str] = []
+
+    try:
+        async with aiohttp.ClientSession(
+            connector=connector,
+            timeout=aiohttp.ClientTimeout(total=15),
+        ) as session:
+            for url in rpcs:
+                tried_urls.append(url)
+                try:
+                    async with session.post(url, json={
+                        "jsonrpc": "2.0", "id": 1,
+                        "method": method, "params": params,
+                    }) as r:
+                        data = await r.json(content_type=None)
+                    if "error" in data:
+                        raise RuntimeError(f"RPC error: {data['error']}")
+                    return data["result"]
+                except Exception as e:
+                    logger.debug(f"RPC {url} failed: {e}")
+                    last = e
+    except Exception as e:
+        last = e
+
+    # aiohttp completely failed — try urllib (sync, run in executor)
+    logger.warning(f"aiohttp failed for all RPCs ({last}), trying urllib fallback…")
+    loop = asyncio.get_event_loop()
     for url in rpcs:
         try:
-            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15)) as s:
-                async with s.post(url, json={
-                    "jsonrpc": "2.0", "id": 1,
-                    "method": method, "params": params,
-                }) as r:
-                    data = await r.json(content_type=None)
-            if "error" in data:
-                raise RuntimeError(f"RPC error: {data['error']}")
-            return data["result"]
+            result = await loop.run_in_executor(
+                None, _rpc_sync_urllib, url, method, params
+            )
+            logger.info(f"urllib fallback succeeded via {url}")
+            return result
         except Exception as e:
-            logger.debug(f"RPC {url} failed: {e}")
+            logger.debug(f"urllib fallback {url} failed: {e}")
             last = e
-    raise last
+
+    raise RuntimeError(f"All RPCs failed (tried {len(rpcs)} nodes): {last}")
 
 
 def _erc20_transfer_data(to_address: str, amount_raw: int) -> str:
@@ -134,7 +209,7 @@ async def _send_erc20(rpcs: list[str], chain_id: int, contract: str,
     tx = {
         "to":       _checksum(contract),
         "value":    0,
-        "gas":      100_000,
+        "gas":      120_000,   # USDT BEP20 can use up to ~115k gas
         "gasPrice": gas_price,
         "nonce":    nonce,
         "chainId":  chain_id,
@@ -162,16 +237,25 @@ async def _send_eth(private_key: str, to: str, amount: float) -> str:
 
 # ── Tron helpers ───────────────────────────────────────────────────────────
 
-def _tron_address_from_key(private_key_hex: str) -> str:
+def _tron_key_bytes(private_key: str) -> bytes:
+    """Convert any private key format to raw 32 bytes for tronpy."""
+    # Strip 0x prefix and non-hex chars, then take rightmost 32 bytes (64 hex chars)
+    k = re.sub(r'[^0-9a-fA-F]', '', re.sub(r'^0[xX]', '', private_key.strip()))
+    if len(k) > 64:
+        k = k[-64:]
+    return bytes.fromhex(k.zfill(64))
+
+
+def _tron_address_from_key(private_key: str) -> str:
     from tronpy.keys import PrivateKey
-    pk = PrivateKey(bytes.fromhex(private_key_hex.lstrip("0x")))
+    pk = PrivateKey(_tron_key_bytes(private_key))
     return pk.public_key.to_base58check_address()
 
 
-async def _send_trx(private_key_hex: str, to: str, amount_trx: float) -> str:
+async def _send_trx(private_key: str, to: str, amount_trx: float) -> str:
     from tronpy import AsyncTron
     from tronpy.keys import PrivateKey
-    pk        = PrivateKey(bytes.fromhex(private_key_hex.lstrip("0x")))
+    pk        = PrivateKey(_tron_key_bytes(private_key))
     from_addr = pk.public_key.to_base58check_address()
     sun       = int(amount_trx * 1_000_000)
     async with AsyncTron() as client:
@@ -182,10 +266,10 @@ async def _send_trx(private_key_hex: str, to: str, amount_trx: float) -> str:
         return result.get("txid", "")
 
 
-async def _send_trc20_usdt(private_key_hex: str, to: str, amount: float) -> str:
+async def _send_trc20_usdt(private_key: str, to: str, amount: float) -> str:
     from tronpy import AsyncTron
     from tronpy.keys import PrivateKey
-    pk    = PrivateKey(bytes.fromhex(private_key_hex.lstrip("0x")))
+    pk    = PrivateKey(_tron_key_bytes(private_key))
     owner = pk.public_key.to_base58check_address()
     sun   = int(amount * 1_000_000)
     async with AsyncTron() as client:
@@ -231,9 +315,22 @@ async def auto_release_deal(deal, bot) -> bool:
         await notify_admins(bot, f"❌ Auto-release {uid}: HD_MNEMONIC missing — manual release needed.")
         return False
 
-    bsc_gas_key = (settings.GAS_WALLET_PRIVATE_KEY or "").strip()
-    trc_gas_key = (settings.GAS_WALLET_TRC_PRIVATE_KEY or "").strip() or bsc_gas_key
-    gas_key     = trc_gas_key if net == CryptoNetwork.USDT_TRC20 else bsc_gas_key
+    _raw_bsc = (settings.GAS_WALLET_PRIVATE_KEY or "").strip()
+    _raw_trc = (settings.GAS_WALLET_TRC_PRIVATE_KEY or "").strip() or _raw_bsc
+
+    try:
+        bsc_gas_key = _sanitize_key(_raw_bsc) if _raw_bsc else ""
+    except ValueError as e:
+        await notify_admins(bot, f"❌ Auto-release {uid}: bad GAS_WALLET_PRIVATE_KEY — {e}")
+        return False
+
+    try:
+        trc_gas_key = _sanitize_key(_raw_trc) if _raw_trc else ""
+    except ValueError as e:
+        await notify_admins(bot, f"❌ Auto-release {uid}: bad GAS_WALLET_TRC_PRIVATE_KEY — {e}")
+        return False
+
+    gas_key = trc_gas_key if net == CryptoNetwork.USDT_TRC20 else bsc_gas_key
 
     if not gas_key:
         owner_wallet = await get_setting("owner_wallet_address", "")
@@ -300,8 +397,7 @@ async def auto_release_deal(deal, bot) -> bool:
         if cross_network:
             # Send from gas wallet on seller's network
             if seller_network == CryptoNetwork.USDT_TRC20:
-                payout_key = (settings.GAS_WALLET_TRC_PRIVATE_KEY or "").strip() or bsc_gas_key
-                seller_tx  = await _send_trc20_usdt(payout_key, deal.seller_wallet, deal.amount)
+                seller_tx  = await _send_trc20_usdt(trc_gas_key, deal.seller_wallet, deal.amount)
             elif seller_network == CryptoNetwork.USDT_BEP20:
                 seller_tx  = await _send_bep20_usdt(bsc_gas_key, deal.seller_wallet, deal.amount)
             else:
