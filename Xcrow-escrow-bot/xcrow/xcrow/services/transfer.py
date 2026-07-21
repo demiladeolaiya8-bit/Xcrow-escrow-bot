@@ -166,7 +166,8 @@ async def _get_nonce(rpcs: list[str], address: str) -> int:
 
 async def _get_gas_price(rpcs: list[str], multiplier: float = 1.15) -> int:
     result = await _rpc(rpcs, "eth_gasPrice", [])
-    return int(int(result, 16) * multiplier)
+    price = int(int(result, 16) * multiplier)
+    return max(price, 3_000_000_000)  # minimum 3 Gwei for BSC
 
 
 async def _broadcast_tx(rpcs: list[str], signed_tx_bytes: bytes) -> str:
