@@ -1,0 +1,46 @@
+version: "3.9"
+
+services:
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: xcrow_postgres
+    restart: always
+    environment:
+      POSTGRES_DB: xcrow
+      POSTGRES_USER: xcrow
+      POSTGRES_PASSWORD: xcrowpass
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U xcrow -d xcrow"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  bot:
+    build: .
+    container_name: xcrow_bot
+    restart: always
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./logs:/app/logs
+      - ./sessions:/app/sessions
+    ports:
+      - "0.0.0.0:8000:8000"
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://xcrow:xcrowpass@postgres:5432/xcrow
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+volumes:
+  pgdata:

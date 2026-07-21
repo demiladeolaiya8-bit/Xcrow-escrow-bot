@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% set active = "disputes" %}
+{% block title %}Disputes — Xcrow Admin{% endblock %}
+{% block page_title %}Disputes{% endblock %}
+{% block content %}
+<div class="card-xcrow">
+  <table class="table table-xcrow mb-3">
+    <thead><tr><th>#</th><th>Deal</th><th>Opened By</th><th>Reason</th><th>Status</th><th>Created</th><th>Action</th></tr></thead>
+    <tbody>
+      {% for d in disputes %}
+      <tr>
+        <td style="color:var(--muted);font-size:0.8rem;">{{ d.id }}</td>
+        <td><a href="/panel/deals/{{ d.deal.deal_uid }}">#{{ d.deal.deal_uid }}</a></td>
+        <td style="font-size:0.83rem;">{{ d.opened_by }}</td>
+        <td style="font-size:0.83rem;">{{ d.reason[:60] }}{% if d.reason|length > 60 %}…{% endif %}</td>
+        <td>
+          {% if d.status == 'open' %}<span class="badge-status s-disputed">Open</span>
+          {% elif d.status == 'resolved' %}<span class="badge-status s-completed">Resolved</span>
+          {% else %}<span class="badge-status s-cancelled">{{ d.status }}</span>{% endif %}
+        </td>
+        <td style="color:var(--muted);font-size:0.8rem;">{{ d.created_at.strftime('%d %b %H:%M') }}</td>
+        <td>
+          {% if d.status == 'open' %}
+          <a href="/panel/deals/{{ d.deal.deal_uid }}" class="btn btn-sm btn-accent" style="font-size:0.75rem;padding:3px 10px;">Resolve →</a>
+          {% else %}<span style="color:var(--muted);font-size:0.78rem;">{{ (d.resolution or '')[:30] }}</span>{% endif %}
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="7" class="text-center" style="color:var(--muted);padding:30px;">No disputes found</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% if disputes|length >= 25 %}
+  <nav><ul class="pagination mb-0" style="font-size:0.85rem;">
+    {% if offset > 0 %}<li class="page-item"><a class="page-link" href="?offset={{ offset - 25 }}">‹ Prev</a></li>{% endif %}
+    <li class="page-item"><a class="page-link" href="?offset={{ offset + 25 }}">Next ›</a></li>
+  </ul></nav>
+  {% endif %}
+</div>
+{% endblock %}

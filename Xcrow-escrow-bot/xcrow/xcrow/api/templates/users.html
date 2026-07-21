@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% set active = "users" %}
+{% block title %}Users — Xcrow Admin{% endblock %}
+{% block page_title %}Users{% endblock %}
+{% block content %}
+<div class="card-xcrow">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h6 style="margin:0;font-weight:600;">All Users <span style="color:var(--muted);font-weight:400;font-size:0.85rem;">({{ total }} total)</span></h6>
+  </div>
+  <table class="table table-xcrow mb-3">
+    <thead><tr><th>Telegram ID</th><th>Username</th><th>Name</th><th>Status</th><th>Admin</th><th>Joined</th><th>Action</th></tr></thead>
+    <tbody>
+      {% for u in users %}
+      <tr>
+        <td><code style="font-size:0.78rem;">{{ u.telegram_id }}</code></td>
+        <td>{{ ('@' + u.username) if u.username else '—' }}</td>
+        <td style="color:var(--muted);font-size:0.85rem;">{{ u.first_name or '—' }}</td>
+        <td>
+          {% if u.is_banned %}<span class="badge-status s-cancelled">Banned</span>
+          {% else %}<span class="badge-status s-funded">Active</span>{% endif %}
+        </td>
+        <td>{{ '👑' if u.is_admin else '—' }}</td>
+        <td style="color:var(--muted);font-size:0.82rem;">{{ u.created_at.strftime('%d %b %Y') }}</td>
+        <td>
+          <form method="post" action="/panel/users/{{ u.telegram_id }}/ban" style="display:inline;">
+            {% if u.is_banned %}
+              <input type="hidden" name="banned" value="0">
+              <button class="btn btn-sm" style="background:var(--surface2);color:var(--success);font-size:0.75rem;padding:3px 10px;">Unban</button>
+            {% else %}
+              <input type="hidden" name="banned" value="1">
+              <button class="btn btn-sm btn-danger" style="font-size:0.75rem;padding:3px 10px;" onclick="return confirm('Ban this user?')">Ban</button>
+            {% endif %}
+          </form>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="7" class="text-center" style="color:var(--muted);padding:30px;">No users found</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% if total > 25 %}
+  <nav><ul class="pagination mb-0" style="font-size:0.85rem;">
+    {% if offset > 0 %}<li class="page-item"><a class="page-link" href="?offset={{ offset - 25 }}">‹ Prev</a></li>{% endif %}
+    {% if offset + 25 < total %}<li class="page-item"><a class="page-link" href="?offset={{ offset + 25 }}">Next ›</a></li>{% endif %}
+  </ul></nav>
+  {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,38 @@
+# Telegram
+aiogram==3.13.0
+pyrogram==2.0.106
+TgCrypto==1.2.5
+
+# Database
+sqlalchemy[asyncio]==2.0.36
+asyncpg==0.29.0
+alembic==1.13.3
+
+# Config
+pydantic-settings==2.6.1
+
+# API server
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
+
+# Web admin dashboard
+jinja2==3.1.4
+python-multipart==0.0.12
+itsdangerous==2.2.0
+
+# HTTP client (blockchain APIs)
+aiohttp==3.10.10
+
+# HD wallet
+bip-utils==2.9.3
+
+# QR codes
+qrcode[pil]==8.0
+Pillow==11.0.0
+
+# Logging
+loguru==0.7.2
+
+# Auto-release blockchain transfers
+web3==6.20.0
+tronpy==0.4.0

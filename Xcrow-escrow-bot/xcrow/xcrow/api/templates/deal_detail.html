@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% set active = "deals" %}
+{% block title %}Deal #{{ deal.deal_uid }} — Xcrow Admin{% endblock %}
+{% block page_title %}Deal #{{ deal.deal_uid }}{% endblock %}
+{% block content %}
+<div class="row g-3">
+  <div class="col-lg-7">
+    <div class="card-xcrow mb-3">
+      <h6 style="font-weight:600;margin-bottom:16px;">Deal Information</h6>
+      {% macro row(label, val) %}
+      <div class="d-flex justify-content-between py-2" style="border-bottom:1px solid var(--border);">
+        <span style="color:var(--muted);font-size:0.85rem;">{{ label }}</span>
+        <span style="font-size:0.88rem;">{{ val }}</span>
+      </div>
+      {% endmacro %}
+      {{ row("UID", deal.deal_uid) }}
+      <div class="d-flex justify-content-between py-2" style="border-bottom:1px solid var(--border);">
+        <span style="color:var(--muted);font-size:0.85rem;">Status</span>
+        <span class="badge-status s-{{ deal.status }}">{{ deal.status }}</span>
+      </div>
+      {{ row("Item / Title", deal.title or '—') }}
+      {{ row("Buyer",  deal.buyer.display_name  if deal.buyer  else '—') }}
+      {{ row("Seller", deal.seller.display_name if deal.seller else '—') }}
+      {{ row("Amount (seller gets)", ("%.6f"|format(deal.amount or 0)) + " " + (CRYPTO_SYMBOLS.get(deal.crypto, deal.crypto or '?'))) }}
+      {{ row("Fee", ("%.2f"|format(deal.fee_percent or 1)) + "% = " + ("%.6f"|format(deal.fee_amount or 0)) + " " + (CRYPTO_SYMBOLS.get(deal.crypto, deal.crypto or '?'))) }}
+      {{ row("Total (buyer pays)", ("%.6f"|format(deal.total_amount or 0)) + " " + (CRYPTO_SYMBOLS.get(deal.crypto, deal.crypto or '?'))) }}
+      {{ row("Network",         deal.crypto or '—') }}
+      {{ row("Deposit Address", deal.deposit_address or '—') }}
+      {{ row("TX Hash",         deal.tx_hash or '—') }}
+      {{ row("Seller Wallet",   deal.seller_wallet or '—') }}
+      {{ row("Seller Network",  deal.seller_network or '—') }}
+      {{ row("Group ID",        deal.group_id or '—') }}
+      {{ row("Created",  deal.created_at.strftime('%Y-%m-%d %H:%M UTC')) }}
+      {% if deal.funded_at %}{{ row("Funded", deal.funded_at.strftime('%Y-%m-%d %H:%M UTC')) }}{% endif %}
+      {% if deal.released_at %}{{ row("Released", deal.released_at.strftime('%Y-%m-%d %H:%M UTC')) }}{% endif %}
+    </div>
+  </div>
+  <div class="col-lg-5">
+    <div class="card-xcrow mb-3">
+      <h6 style="font-weight:600;margin-bottom:16px;">Admin Actions</h6>
+      {% if deal.status in ('releasing', 'funded', 'in_delivery', 'buyer_confirming') %}
+      <form method="post" action="/panel/deals/{{ deal.deal_uid }}/action"
+            onsubmit="return confirm('Release funds to seller and mark COMPLETED?')">
+        <input type="hidden" name="action" value="release">
+        <button class="btn btn-sm btn-success w-100 mb-2"><i class="fa fa-check"></i> Release → Completed</button>
+      </form>
+      {% endif %}
+      {% if deal.status not in ('completed', 'refunded', 'cancelled') %}
+      <form method="post" action="/panel/deals/{{ deal.deal_uid }}/action" onsubmit="return confirm('Refund to buyer?')">
+        <input type="hidden" name="action" value="refund">
+        <button class="btn btn-sm btn-warning w-100 mb-2" style="color:#000;"><i class="fa fa-rotate-left"></i> Refund to Buyer</button>
+      </form>
+      <form method="post" action="/panel/deals/{{ deal.deal_uid }}/action" onsubmit="return confirm('Cancel this deal?')">
+        <input type="hidden" name="action" value="cancel">
+        <button class="btn btn-sm btn-danger w-100 mb-2"><i class="fa fa-ban"></i> Cancel Deal</button>
+      </form>
+      {% endif %}
+      <a href="/panel/deals" class="btn btn-sm w-100" style="background:var(--surface2);color:var(--text);">← Back to Deals</a>
+    </div>
+    <div class="card-xcrow">
+      <h6 style="font-weight:600;margin-bottom:12px;">Release Checklist</h6>
+      <ol style="font-size:0.82rem;color:var(--muted);padding-left:18px;">
+        <li>Send <strong style="color:var(--text);">{{ "%.6f"|format(deal.amount or 0) }} {{ CRYPTO_SYMBOLS.get(deal.crypto, deal.crypto or '?') }}</strong> to seller wallet</li>
+        <li>Send fee <strong style="color:var(--text);">{{ "%.6f"|format(deal.fee_amount or 0) }} {{ CRYPTO_SYMBOLS.get(deal.crypto, deal.crypto or '?') }}</strong> to owner wallet</li>
+        <li>Click "Release → Completed" above</li>
+      </ol>
+      {% if deal.seller_wallet %}
+      <div class="mt-2" style="background:var(--surface2);border-radius:6px;padding:10px;font-size:0.8rem;">
+        <div style="color:var(--muted);">Seller wallet ({{ deal.seller_network or '?' }}):</div>
+        <code>{{ deal.seller_wallet }}</code>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}

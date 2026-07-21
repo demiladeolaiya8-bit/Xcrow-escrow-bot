@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% set active = "tickets" %}
+{% block title %}Support Tickets — Xcrow Admin{% endblock %}
+{% block page_title %}Support Tickets{% endblock %}
+{% block content %}
+<div class="card-xcrow">
+  <table class="table table-xcrow mb-3">
+    <thead><tr><th>#</th><th>User</th><th>Subject</th><th>Status</th><th>Created</th><th>Action</th></tr></thead>
+    <tbody>
+      {% for t in tickets %}
+      <tr>
+        <td><code>{{ t.id }}</code></td>
+        <td style="font-size:0.83rem;">{{ ('@' + t.username) if t.username else (t.telegram_id or '—') }}</td>
+        <td style="font-size:0.85rem;">
+          {{ t.subject }}
+          <div style="color:var(--muted);font-size:0.78rem;margin-top:2px;">{{ t.message[:80] }}{% if t.message|length > 80 %}…{% endif %}</div>
+        </td>
+        <td>
+          {% if t.status == 'open' %}<span class="badge-status s-step5_pending">Open</span>
+          {% elif t.status == 'resolved' %}<span class="badge-status s-completed">Resolved</span>
+          {% else %}<span class="badge-status s-cancelled">{{ t.status }}</span>{% endif %}
+        </td>
+        <td style="color:var(--muted);font-size:0.8rem;">{{ t.created_at.strftime('%d %b %H:%M') }}</td>
+        <td>
+          {% if t.status == 'open' %}
+          <button class="btn btn-sm btn-accent" style="font-size:0.75rem;padding:3px 10px;"
+                  onclick="document.getElementById('reply-{{ t.id }}').style.display='block'">Reply</button>
+          {% else %}<span style="color:var(--muted);font-size:0.78rem;">{{ (t.reply or '')[:40] }}</span>{% endif %}
+        </td>
+      </tr>
+      {% if t.status == 'open' %}
+      <tr id="reply-{{ t.id }}" style="display:none;">
+        <td colspan="6" style="background:var(--surface2);padding:14px;">
+          <form method="post" action="/panel/tickets/{{ t.id }}/resolve">
+            <div class="mb-2">
+              <textarea name="reply" class="form-control form-control-xcrow" rows="3"
+                        placeholder="Type your reply…" required style="width:100%;"></textarea>
+            </div>
+            <button type="submit" class="btn btn-sm btn-accent">Send & Resolve</button>
+            <button type="button" class="btn btn-sm ms-2" style="background:var(--surface);color:var(--muted);"
+                    onclick="document.getElementById('reply-{{ t.id }}').style.display='none'">Cancel</button>
+          </form>
+        </td>
+      </tr>
+      {% endif %}
+      {% else %}
+      <tr><td colspan="6" class="text-center" style="color:var(--muted);padding:30px;">No support tickets</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% if tickets|length >= 25 %}
+  <nav><ul class="pagination mb-0" style="font-size:0.85rem;">
+    {% if offset > 0 %}<li class="page-item"><a class="page-link" href="?offset={{ offset - 25 }}">‹ Prev</a></li>{% endif %}
+    <li class="page-item"><a class="page-link" href="?offset={{ offset + 25 }}">Next ›</a></li>
+  </ul></nav>
+  {% endif %}
+</div>
+{% endblock %}

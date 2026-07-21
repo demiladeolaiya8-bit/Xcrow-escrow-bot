@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% set active = "logs" %}
+{% block title %}Audit Logs — Xcrow Admin{% endblock %}
+{% block page_title %}Audit Logs{% endblock %}
+{% block content %}
+<div class="card-xcrow">
+  <table class="table table-xcrow mb-3">
+    <thead><tr><th>Time</th><th>Actor</th><th>Action</th><th>Target</th><th>Detail</th></tr></thead>
+    <tbody>
+      {% for log in logs %}
+      <tr>
+        <td style="color:var(--muted);font-size:0.8rem;white-space:nowrap;">{{ log.created_at.strftime('%d %b %H:%M:%S') }}</td>
+        <td style="font-size:0.82rem;">{{ log.actor }}</td>
+        <td><code style="font-size:0.8rem;">{{ log.action }}</code></td>
+        <td style="color:var(--muted);font-size:0.82rem;">{{ log.target or '—' }}</td>
+        <td style="color:var(--muted);font-size:0.8rem;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ log.detail or '—' }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5" class="text-center" style="color:var(--muted);padding:30px;">No audit logs yet</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% if logs|length >= 50 %}
+  <nav><ul class="pagination mb-0" style="font-size:0.85rem;">
+    {% if offset > 0 %}<li class="page-item"><a class="page-link" href="?offset={{ offset - 50 }}">‹ Prev</a></li>{% endif %}
+    <li class="page-item"><a class="page-link" href="?offset={{ offset + 50 }}">Next ›</a></li>
+  </ul></nav>
+  {% endif %}
+</div>
+{% endblock %}

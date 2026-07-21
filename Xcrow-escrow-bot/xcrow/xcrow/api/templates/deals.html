@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% set active = "deals" %}
+{% block title %}Deals — Xcrow Admin{% endblock %}
+{% block page_title %}Deals{% endblock %}
+{% block content %}
+<div class="card-xcrow">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h6 style="margin:0;font-weight:600;">All Deals <span style="color:var(--muted);font-weight:400;font-size:0.85rem;">({{ total }} total)</span></h6>
+  </div>
+  <table class="table table-xcrow mb-3">
+    <thead><tr><th>UID</th><th>Status</th><th>Buyer</th><th>Seller</th><th>Amount</th><th>Network</th><th>Created</th><th></th></tr></thead>
+    <tbody>
+      {% for d in deals %}
+      <tr>
+        <td><code>{{ d.deal_uid }}</code></td>
+        <td><span class="badge-status s-{{ d.status }}">{{ d.status }}</span></td>
+        <td style="color:var(--muted);font-size:0.83rem;">{{ d.buyer.display_name if d.buyer else '—' }}</td>
+        <td style="color:var(--muted);font-size:0.83rem;">{{ d.seller.display_name if d.seller else '—' }}</td>
+        <td>{{ "%.4f"|format(d.total_amount or 0) }} {{ CRYPTO_SYMBOLS.get(d.crypto, d.crypto or '?') }}</td>
+        <td style="color:var(--muted);font-size:0.82rem;">{{ d.crypto or '—' }}</td>
+        <td style="color:var(--muted);font-size:0.82rem;">{{ d.created_at.strftime('%d %b %Y %H:%M') }}</td>
+        <td><a href="/panel/deals/{{ d.deal_uid }}" style="font-size:0.82rem;">View →</a></td>
+      </tr>
+      {% else %}
+      <tr><td colspan="8" class="text-center" style="color:var(--muted);padding:30px;">No deals found</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% if total > 25 %}
+  <nav><ul class="pagination mb-0" style="font-size:0.85rem;">
+    {% if offset > 0 %}<li class="page-item"><a class="page-link" href="?offset={{ offset - 25 }}">‹ Prev</a></li>{% endif %}
+    {% if offset + 25 < total %}<li class="page-item"><a class="page-link" href="?offset={{ offset + 25 }}">Next ›</a></li>{% endif %}
+  </ul></nav>
+  {% endif %}
+</div>
+{% endblock %}
