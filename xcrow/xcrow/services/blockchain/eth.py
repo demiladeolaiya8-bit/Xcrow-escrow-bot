@@ -29,8 +29,10 @@ def _pad_address(address: str) -> str:
 
 
 async def _etherscan_txlist(address: str, api_key: str) -> list[dict]:
-    url = "https://api.etherscan.io/api"
+    # V2 endpoint — required as of mid-2025 (V1 is deprecated)
+    url = "https://api.etherscan.io/v2/api"
     params = {
+        "chainid": "1",       # Ethereum mainnet
         "module":  "account",
         "action":  "txlist",
         "address": address,

@@ -42,15 +42,17 @@ def _pad_address(address: str) -> str:
 async def _bscscan_get_transfers(
     session: aiohttp.ClientSession, address: str
 ) -> list[dict]:
-    """Fetch USDT BEP20 transfers to `address` via BscScan token-tx API."""
-    url = "https://api.bscscan.com/api"
+    """Fetch USDT BEP20 transfers to `address` via BscScan V2 token-tx API."""
+    # V2 endpoint — required as of mid-2025 (V1 is deprecated)
+    url = "https://api.bscscan.com/v2/api"
     params = {
+        "chainid":         "56",          # BSC mainnet
         "module":          "account",
         "action":          "tokentx",
         "contractaddress": USDT_BEP20_CONTRACT,
         "address":         address,
         "sort":            "desc",
-        "apikey":          settings.BSCSCAN_API_KEY or "YourApiKeyToken",
+        "apikey":          settings.BSCSCAN_API_KEY,
     }
     async with session.get(
         url, params=params, timeout=aiohttp.ClientTimeout(total=20)
