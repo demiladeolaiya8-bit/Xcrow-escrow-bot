@@ -480,58 +480,73 @@ async def cb_confirm_deal(callback: CallbackQuery, bot: Bot, state: FSMContext) 
 
 
 async def _finalize_step4_and_show_payment(bot: Bot, callback: CallbackQuery, deal) -> None:
-    from services.wallet import wallet_service
+    import random
     from services.qr import generate_qr_bytes
+    from aiogram.types import BufferedInputFile
 
-    uid = deal.deal_uid
-    wallet_index = await _get_next_wallet_index()
+    uid     = deal.deal_uid
     network = deal.crypto
+    symbol  = CRYPTO_SYMBOLS.get(network, network)
+    label   = CRYPTO_LABELS.get(network, network)
 
-    try:
-        deposit_address = wallet_service.derive_address(network, wallet_index)
-    except Exception as e:
+    # ── Get main wallet address for this network ───────────────────────────
+    if network == CryptoNetwork.BTC:
+        deposit_address = settings.MAIN_WALLET_BTC
+    else:
+        deposit_address = settings.MAIN_WALLET_BSC_ETH
+
+    if not deposit_address:
         await callback.message.reply(
-            f"❌ Failed to generate deposit address: {e}\n"
-            "Contact support: @" + settings.SUPPORT_USERNAME
+            f"❌ Main wallet address not configured for {label}.\n"
+            f"Contact support: @{settings.SUPPORT_USERNAME}"
         )
         return
 
+    # ── Make total_amount unique by adding 1–9 random cents ───────────────
+    # This lets the monitor identify which deal an incoming payment belongs to.
+    unique_offset = round(random.uniform(0.01, 0.09), 2)
+    unique_total  = round((deal.total_amount or 0) + unique_offset, 6)
+
     await update_deal(
         deal.id,
-        wallet_index=wallet_index,
         deposit_address=deposit_address,
+        total_amount=unique_total,
         status=DealStatus.STEP5_PENDING,
     )
     deal = await get_deal_by_uid(uid)
     await update_pinned(bot, deal)
 
-    symbol  = CRYPTO_SYMBOLS.get(network, network)
-    label   = CRYPTO_LABELS.get(network, network)
-    total   = deal.total_amount
-    is_auto = network in AUTO_MONITOR_NETWORKS
-
+    # ── Build payment instructions ─────────────────────────────────────────
     text = (
         f"<b>Step 5 of 5 — Escrow Payment</b>\n\n"
         f"📦 <b>Item:</b>    {deal.title}\n"
         f"💰 <b>Amount:</b>  {deal.amount:,.4f} {symbol}\n"
         f"💸 <b>Fee ({deal.fee_percent:.2f}%):</b>  {deal.fee_amount:,.4f} {symbol}\n"
-        f"━━━━━━━━━━━━━━━\n"
-        f"📨 <b>SEND EXACTLY:</b>\n"
-        f"<code>{total:,.4f} {symbol}</code>\n\n"
-        f"🔗 <b>TO THIS ADDRESS:</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"📨 <b>SEND EXACTLY THIS AMOUNT:</b>\n"
+        f"<code>{unique_total:.6f} {symbol}</code>\n\n"
+        f"🔗 <b>TO THIS WALLET ADDRESS:</b>\n"
         f"<code>{deposit_address}</code>\n\n"
-        f"🌐 <b>Network:</b> {label}\n\n"
-        f"{'🤖 Payment is monitored automatically.' if is_auto else '⚠️ Manual confirmation required. Contact support after sending.'}\n\n"
-        f"⚠️ Send the <b>exact amount</b> to the <b>correct network</b>."
+        f"🌐 <b>Network:</b> {label}\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"⚠️ <b>Important:</b>\n"
+        f"• Send the <b>exact amount shown</b> — the unique cents identify your deal\n"
+        f"• Use the <b>correct network</b> ({label})\n"
+        f"• Payment is detected automatically within ~1 minute\n"
     )
 
+    # ── Send QR code for the wallet address ───────────────────────────────
     try:
-        from aiogram.types import BufferedInputFile
         qr_bytes = generate_qr_bytes(deposit_address)
         await bot.send_photo(
             callback.message.chat.id,
             photo=BufferedInputFile(qr_bytes, filename="deposit_qr.png"),
-            caption=f"📷 QR Code for deposit address\n<code>{deposit_address}</code>",
+            caption=(
+                f"📷 <b>Scan to copy wallet address</b>\n\n"
+                f"Network: <b>{label}</b>\n"
+                f"Address: <code>{deposit_address}</code>\n\n"
+                f"💡 Send <b>exactly {unique_total:.6f} {symbol}</b> to this address"
+            ),
         )
     except Exception:
         pass
@@ -545,8 +560,9 @@ async def _finalize_step4_and_show_payment(bot: Bot, callback: CallbackQuery, de
     await notify_admins(
         bot,
         f"💼 <b>Deal {uid} awaiting payment</b>\n"
-        f"Amount: {total} {symbol}\n"
-        f"Address: <code>{deposit_address}</code>",
+        f"Network: {label}\n"
+        f"Unique amount: {unique_total:.6f} {symbol}\n"
+        f"Wallet: <code>{deposit_address}</code>",
     )
 
 
@@ -649,8 +665,8 @@ async def cb_delivery_ok(callback: CallbackQuery, bot: Bot) -> None:
 
     # ── Auto-release in background ────────────────────────────────────────
     import asyncio
-    from services.transfer import auto_release_deal
-    asyncio.create_task(auto_release_deal(deal, bot))
+    from services.transfer import auto_release_from_main_wallet
+    asyncio.create_task(auto_release_from_main_wallet(deal, bot))
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -742,9 +758,17 @@ async def msg_dispute_reason(message: Message, state: FSMContext, bot: Bot) -> N
 #  on_payment_confirmed — called by blockchain monitor
 # ══════════════════════════════════════════════════════════════════════════
 
-async def on_payment_confirmed(bot: Bot, deal, tx_hash: str, amount: float) -> None:
-    """Called externally when a deposit is confirmed on-chain."""
-    await create_transaction(deal.id, tx_hash, amount, deal.crypto, confirmed=True)
+async def on_payment_confirmed(
+    bot: Bot, deal, tx_hash: str, amount: float,
+    from_addr: str = "", confirmations: int = 0,
+) -> None:
+    """Called by central monitor when a matching deposit is confirmed on-chain."""
+    await create_transaction(
+        deal.id, tx_hash, amount, deal.crypto,
+        from_addr=from_addr or None,
+        confirmed=True,
+        confirmations=confirmations,
+    )
     await update_deal(deal.id, status=DealStatus.FUNDED, tx_hash=tx_hash, funded_at=datetime.utcnow())
     deal = await get_deal_by_uid(deal.deal_uid)
 

@@ -23,9 +23,18 @@ class Settings(BaseSettings):
     BSCSCAN_API_KEY: str = ""
     ETHERSCAN_API_KEY: str = ""
 
-    # ── HD wallet ─────────────────────────────────────────────────────────
+    # ── HD wallet (legacy — kept for backwards compatibility) ─────────────
     HD_MNEMONIC: str = ""
     WALLET_PASSPHRASE: str = ""
+
+    # ── Main escrow wallet (NEW — replaces per-deal HD addresses) ─────────
+    # Your SafePal BEP20 / ERC20 wallet — all USDT/ETH payments go here.
+    MAIN_WALLET_BSC_ETH: str = "0xB79fdeaCc172846a7BE52fdd04E8491424304d37"
+    # Your Bitcoin wallet — BTC payments go here.
+    MAIN_WALLET_BTC: str = "bc1qkda0dmyde93v72kd0ant00kpf2d3d99h5w9d78"
+    # Private key for MAIN_WALLET_BSC_ETH — used to auto-release USDT/ETH.
+    # ⚠️  NEVER commit this to GitHub. Add it directly to .env on your VPS.
+    MAIN_WALLET_PRIVATE_KEY: str = ""
 
     # ── Pyrogram (auto group creation) ────────────────────────────────────
     API_ID: str = ""
@@ -42,14 +51,8 @@ class Settings(BaseSettings):
     ADMIN_DASHBOARD_PASSWORD: str = "xcrow-admin-change-me"
     DASHBOARD_SESSION_SECRET: str = secrets.token_hex(32)
 
-    # ── Auto-release gas wallets ──────────────────────────────────────────
-    # BSC/ETH gas wallet — export from SafePal → BNB Chain → Private Key
-    # Must hold BNB (~0.05 covers ~25 deals) for BSC gas fees.
+    # ── Legacy gas wallets (kept for TRC20 / cross-network) ───────────────
     GAS_WALLET_PRIVATE_KEY: str = ""
-
-    # Tron gas wallet — export from SafePal → Tron → Private Key
-    # Must hold TRX (~500 covers ~25 deals) for TRC20 energy fees.
-    # If left empty, GAS_WALLET_PRIVATE_KEY is used for Tron as well.
     GAS_WALLET_TRC_PRIVATE_KEY: str = ""
 
     # ── Escrow settings (fallback — live values stored in DB) ────────────
@@ -58,7 +61,7 @@ class Settings(BaseSettings):
 
     # ── Monitoring ────────────────────────────────────────────────────────
     MONITOR_INTERVAL_SECONDS: int = 30
-    CONFIRMATION_BLOCKS: int = 1
+    CONFIRMATION_BLOCKS: int = 3
 
     # ── Misc ──────────────────────────────────────────────────────────────
     LOG_LEVEL: str = "INFO"
@@ -93,8 +96,6 @@ def validate_settings(s: Settings) -> None:
         errors.append("BOT_TOKEN is missing")
     if not s.ADMIN_IDS:
         errors.append("ADMIN_IDS is missing")
-    if not s.HD_MNEMONIC:
-        errors.append("HD_MNEMONIC is missing — run: python pyrogram_auth.py --mnemonic")
     if errors:
         from loguru import logger
         logger.error("❌  Configuration errors found in .env:")

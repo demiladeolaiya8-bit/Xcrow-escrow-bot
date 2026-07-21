@@ -146,6 +146,30 @@ async def get_active_deals_for_monitoring() -> List[Deal]:
         return list(result.scalars().all())
 
 
+async def find_deal_by_amount(
+    amount: float,
+    network: str,
+    tolerance: float = 0.005,
+) -> Deal | None:
+    """
+    Find a pending deal whose total_amount matches `amount` ±tolerance on the given network.
+    Used by the central monitor to match incoming payments to deals.
+    """
+    async with AsyncSessionLocal() as s:
+        result = await s.execute(
+            select(Deal)
+            .options(selectinload(Deal.buyer), selectinload(Deal.seller))
+            .where(
+                Deal.status.in_([DealStatus.STEP5_PENDING, DealStatus.AWAITING_PAYMENT]),
+                Deal.crypto == network,
+                Deal.total_amount >= amount - tolerance,
+                Deal.total_amount <= amount + tolerance,
+            )
+            .order_by(Deal.created_at.asc())  # oldest first — FIFO
+        )
+        return result.scalars().first()
+
+
 async def get_all_deals(limit: int = 50, offset: int = 0) -> List[Deal]:
     async with AsyncSessionLocal() as s:
         result = await s.execute(
@@ -172,7 +196,6 @@ async def count_all_deals() -> int:
 
 
 async def get_total_volume() -> float:
-    """Total amount across completed deals (what sellers received)."""
     async with AsyncSessionLocal() as s:
         result = await s.execute(
             select(sqlfunc.coalesce(sqlfunc.sum(Deal.amount), 0))
@@ -182,7 +205,6 @@ async def get_total_volume() -> float:
 
 
 async def get_total_fees_earned() -> float:
-    """Total platform fees from completed deals."""
     async with AsyncSessionLocal() as s:
         result = await s.execute(
             select(sqlfunc.coalesce(sqlfunc.sum(Deal.fee_amount), 0))
@@ -204,11 +226,13 @@ async def get_next_wallet_index() -> int:
 async def create_transaction(
     deal_id: int, tx_hash: str, amount: float, crypto: str,
     from_addr: str | None = None, confirmed: bool = True,
+    confirmations: int = 0,
 ) -> Transaction:
     async with AsyncSessionLocal() as s:
         tx = Transaction(
             deal_id=deal_id, tx_hash=tx_hash, amount=amount,
             crypto=crypto, from_addr=from_addr, confirmed=confirmed,
+            confirmations=confirmations,
         )
         s.add(tx)
         await s.commit()
@@ -283,12 +307,18 @@ async def get_all_disputes(limit: int = 50, offset: int = 0) -> List[Dispute]:
 
 _DEFAULT_SETTINGS: list[tuple[str, str, str]] = [
     ("fee_percent",           "1.0",                   "Platform fee percentage added on top of deal amount"),
-    ("owner_wallet_address",  "",                      "Wallet address where platform fees are sent"),
+    ("owner_wallet_address",  "0xB79fdeaCc172846a7BE52fdd04E8491424304d37",
+                                                        "Wallet address where platform fees are sent"),
     ("owner_wallet_network",  "USDT_BEP20",            "Network for the owner fee wallet"),
+    ("main_wallet_bsc_eth",   "0xB79fdeaCc172846a7BE52fdd04E8491424304d37",
+                                                        "Main escrow wallet for BSC/ETH payments"),
+    ("main_wallet_btc",       "bc1qkda0dmyde93v72kd0ant00kpf2d3d99h5w9d78",
+                                                        "Main escrow wallet for Bitcoin payments"),
     ("min_escrow_amount",     "1.0",                   "Minimum deal amount in USDT equivalent"),
     ("max_escrow_amount",     "100000.0",              "Maximum deal amount in USDT equivalent"),
-    ("required_confirmations","1",                     "On-chain confirmations required to mark payment confirmed"),
-    ("supported_networks",    "USDT_TRC20,USDT_BEP20,ETH,BTC,SOL,TON,LTC", "Comma-separated list of enabled networks"),
+    ("required_confirmations","3",                     "On-chain confirmations required to mark payment confirmed"),
+    ("supported_networks",    "USDT_BEP20,USDT_ERC20,ETH,BTC",
+                                                        "Comma-separated list of enabled networks"),
 ]
 
 

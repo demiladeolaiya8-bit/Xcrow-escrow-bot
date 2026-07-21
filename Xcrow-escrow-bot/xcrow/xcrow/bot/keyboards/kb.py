@@ -48,8 +48,15 @@ def register_buyer_kb(deal_uid: str) -> InlineKeyboardMarkup:
 # ── Group Step 4 ───────────────────────────────────────────────────────────
 
 def payment_currency_kb(deal_uid: str) -> InlineKeyboardMarkup:
+    """Show only networks that the central monitor supports."""
+    SUPPORTED = [
+        CryptoNetwork.USDT_BEP20,
+        CryptoNetwork.USDT_ERC20,
+        CryptoNetwork.ETH,
+        CryptoNetwork.BTC,
+    ]
     builder = InlineKeyboardBuilder()
-    for net in CryptoNetwork:
+    for net in SUPPORTED:
         builder.button(text=CRYPTO_LABELS[net], callback_data=f"deal_crypto:{deal_uid}:{net.value}")
     builder.adjust(1)
     return builder.as_markup()

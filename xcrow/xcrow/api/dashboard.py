@@ -223,6 +223,7 @@ async def settings_save(request: Request):
     form = await request.form()
     editable_keys = [
         "fee_percent", "owner_wallet_address", "owner_wallet_network",
+        "main_wallet_bsc_eth", "main_wallet_btc",
         "min_escrow_amount", "max_escrow_amount", "required_confirmations",
         "supported_networks",
     ]

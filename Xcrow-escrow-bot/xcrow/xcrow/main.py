@@ -1,4 +1,4 @@
-"""Xcrow — entry point. Starts bot + blockchain monitor + admin API."""
+"""Xcrow — entry point. Starts bot + central payment monitor + admin API."""
 from __future__ import annotations
 import asyncio
 import os
@@ -34,30 +34,38 @@ import uvicorn
 from database.db import init_db
 from database.crud import seed_default_settings
 from bot.bot import create_bot, create_dispatcher
-from services.blockchain.monitor import BlockchainMonitor
+from services.blockchain.central_monitor import CentralMonitor
 
 
 async def main() -> None:
     logger.info("=" * 55)
-    logger.info("  ⚡  XCROW Escrow Bot v2 — starting up")
+    logger.info("  ⚡  XCROW Escrow Bot v3 — Central Wallet Mode")
     logger.info("=" * 55)
 
-    # Init database (creates tables if first run)
+    # Init database
     await init_db()
     logger.info("✅  Database ready")
 
-    # Seed platform settings with defaults (idempotent — safe to run every boot)
+    # Seed platform settings (idempotent)
     await seed_default_settings()
     logger.info("✅  Platform settings seeded")
 
+    # Log main wallet info
+    logger.info(f"💼  Main wallet (BSC/ETH): {settings.MAIN_WALLET_BSC_ETH}")
+    logger.info(f"💼  Main wallet (BTC):     {settings.MAIN_WALLET_BTC}")
+    if settings.MAIN_WALLET_PRIVATE_KEY:
+        logger.info("🔑  Main wallet private key: configured ✅")
+    else:
+        logger.warning("⚠️   MAIN_WALLET_PRIVATE_KEY not set — auto-release disabled")
+
     # Telegram bot
     bot = create_bot()
-    dp = create_dispatcher()
+    dp  = create_dispatcher()
 
-    # Blockchain monitor
-    monitor = BlockchainMonitor(bot)
+    # Central payment monitor (replaces per-deal blockchain monitor)
+    monitor = CentralMonitor(bot)
 
-    # Admin FastAPI app (includes web dashboard at /panel)
+    # Admin FastAPI app
     uvicorn_config = uvicorn.Config(
         "api.app:app",
         host=settings.API_HOST,
@@ -69,12 +77,12 @@ async def main() -> None:
     logger.info(f"✅  Admin API  → http://{settings.API_HOST}:{settings.API_PORT}/docs")
     logger.info(f"✅  Dashboard  → http://{settings.API_HOST}:{settings.API_PORT}/panel")
 
-    # Register bot commands with Telegram
+    # Register bot commands
     from bot.commands import set_bot_commands
     await set_bot_commands(bot)
     logger.info("✅  Bot commands registered")
 
-    # Pre-connect Pyrogram so first group creation is instant
+    # Pre-connect Pyrogram
     from services.group_creator import start_pyrogram
     await start_pyrogram()
 

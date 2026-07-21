@@ -4,27 +4,93 @@
 {% block page_title %}Payment Transactions{% endblock %}
 {% block content %}
 <div class="card-xcrow">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+    <span style="color:var(--muted);font-size:0.88rem;">All on-chain payment records detected by the central monitor</span>
+    <span class="badge-status s-funded" style="font-size:0.78rem;">Live</span>
+  </div>
+  <div style="overflow-x:auto;">
   <table class="table table-xcrow mb-3">
-    <thead><tr><th>#</th><th>Deal</th><th>TX Hash</th><th>Amount</th><th>Network</th><th>Confirmed</th><th>Date</th></tr></thead>
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Deal</th>
+        <th>TX Hash</th>
+        <th>Amount</th>
+        <th>Network</th>
+        <th>From Sender</th>
+        <th>Confs</th>
+        <th>Status</th>
+        <th>Date</th>
+      </tr>
+    </thead>
     <tbody>
       {% for tx in txs %}
       <tr>
         <td style="color:var(--muted);font-size:0.8rem;">{{ tx.id }}</td>
-        <td><a href="/panel/deals/{{ tx.deal.deal_uid }}">#{{ tx.deal.deal_uid }}</a></td>
-        <td><code style="font-size:0.75rem;">{{ (tx.tx_hash or '')[:18] }}…</code></td>
-        <td><strong>{{ "%.6f"|format(tx.amount) }}</strong> {{ tx.crypto }}</td>
-        <td style="font-size:0.82rem;color:var(--muted);">{{ tx.crypto }}</td>
         <td>
-          {% if tx.confirmed %}<span class="badge-status s-funded">Confirmed</span>
-          {% else %}<span class="badge-status s-step5_pending">Pending</span>{% endif %}
+          <a href="/panel/deals/{{ tx.deal.deal_uid }}" style="font-weight:600;">
+            #{{ tx.deal.deal_uid }}
+          </a>
         </td>
-        <td style="color:var(--muted);font-size:0.8rem;">{{ tx.created_at.strftime('%d %b %H:%M') }}</td>
+        <td>
+          <code style="font-size:0.73rem;">
+            {{ (tx.tx_hash or '')[:16] }}…
+          </code>
+          {% if tx.tx_hash %}
+          <a href="{% if tx.crypto == 'BTC' %}https://blockstream.info/tx/{{ tx.tx_hash }}{% elif tx.crypto in ['USDT_ERC20','ETH'] %}https://etherscan.io/tx/{{ tx.tx_hash }}{% else %}https://bscscan.com/tx/{{ tx.tx_hash }}{% endif %}"
+             target="_blank" style="margin-left:4px;color:var(--accent);font-size:0.75rem;">↗</a>
+          {% endif %}
+        </td>
+        <td>
+          <strong>{{ "%.6f"|format(tx.amount) }}</strong>
+          <span style="color:var(--muted);font-size:0.78rem;">
+            {% if tx.crypto == 'USDT_BEP20' %}USDT
+            {% elif tx.crypto == 'USDT_ERC20' %}USDT
+            {% elif tx.crypto == 'ETH' %}ETH
+            {% elif tx.crypto == 'BTC' %}BTC
+            {% else %}{{ tx.crypto }}{% endif %}
+          </span>
+        </td>
+        <td>
+          <span style="font-size:0.78rem;padding:2px 7px;border-radius:4px;background:rgba(255,255,255,0.06);color:var(--muted);">
+            {{ tx.crypto }}
+          </span>
+        </td>
+        <td>
+          {% if tx.from_addr %}
+          <code style="font-size:0.72rem;color:var(--muted);">
+            {{ tx.from_addr[:14] }}…
+          </code>
+          {% else %}
+          <span style="color:var(--muted);font-size:0.8rem;">—</span>
+          {% endif %}
+        </td>
+        <td style="font-size:0.82rem;color:var(--muted);text-align:center;">
+          {{ tx.confirmations if tx.confirmations else '—' }}
+        </td>
+        <td>
+          {% if tx.confirmed %}
+            <span class="badge-status s-funded">Confirmed</span>
+          {% else %}
+            <span class="badge-status s-step5_pending">Pending</span>
+          {% endif %}
+        </td>
+        <td style="color:var(--muted);font-size:0.8rem;white-space:nowrap;">
+          {{ tx.created_at.strftime('%d %b %H:%M') }}
+        </td>
       </tr>
       {% else %}
-      <tr><td colspan="7" class="text-center" style="color:var(--muted);padding:30px;">No transactions recorded</td></tr>
+      <tr>
+        <td colspan="9" class="text-center" style="color:var(--muted);padding:40px;">
+          <i class="fa fa-inbox" style="font-size:1.6rem;margin-bottom:8px;display:block;opacity:0.4;"></i>
+          No transactions recorded yet.<br>
+          <small>The central monitor logs all incoming payments here automatically.</small>
+        </td>
+      </tr>
       {% endfor %}
     </tbody>
   </table>
+  </div>
   {% if txs|length >= 25 %}
   <nav><ul class="pagination mb-0" style="font-size:0.85rem;">
     {% if offset > 0 %}<li class="page-item"><a class="page-link" href="?offset={{ offset - 25 }}">‹ Prev</a></li>{% endif %}

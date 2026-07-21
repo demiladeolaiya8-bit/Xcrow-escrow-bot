@@ -6,6 +6,8 @@
 {% if saved %}<div class="alert-success-xcrow mb-4"><i class="fa fa-circle-check"></i> Settings saved successfully.</div>{% endif %}
 <form method="post">
 <div class="row g-3">
+
+  <!-- Fee configuration -->
   <div class="col-lg-6">
     <div class="card-xcrow">
       <h6 style="font-weight:600;margin-bottom:18px;color:var(--accent);"><i class="fa fa-percent"></i> Fee Configuration</h6>
@@ -16,22 +18,45 @@
         <small style="color:var(--muted);font-size:0.75rem;">1.0 = 1%. Buyer pays deal amount + fee on top.</small>
       </div>
       <div class="mb-3">
-        <label>Owner Wallet Address</label>
+        <label>Fee Payout Wallet Address</label>
         <input type="text" name="owner_wallet_address" class="form-control form-control-xcrow mt-1" placeholder="0x… or T…"
                value="{{ settings_map.get('owner_wallet_address').value if settings_map.get('owner_wallet_address') else '' }}">
-        <small style="color:var(--muted);font-size:0.75rem;">Platform fees are sent here after each completed deal.</small>
+        <small style="color:var(--muted);font-size:0.75rem;">Platform fees are sent here. Leave as main wallet to keep fees in escrow wallet.</small>
       </div>
       <div class="mb-3">
-        <label>Owner Wallet Network</label>
+        <label>Fee Payout Network</label>
         <select name="owner_wallet_network" class="form-control form-control-xcrow mt-1">
           {% set cur = settings_map.get('owner_wallet_network').value if settings_map.get('owner_wallet_network') else 'USDT_BEP20' %}
-          {% for net in ['USDT_BEP20','USDT_TRC20','ETH','BTC','SOL','TON','LTC'] %}
+          {% for net in ['USDT_BEP20','USDT_ERC20','ETH','BTC','USDT_TRC20'] %}
           <option value="{{ net }}" {% if cur == net %}selected{% endif %}>{{ net }}</option>
           {% endfor %}
         </select>
       </div>
     </div>
   </div>
+
+  <!-- Main wallet addresses -->
+  <div class="col-lg-6">
+    <div class="card-xcrow">
+      <h6 style="font-weight:600;margin-bottom:18px;color:var(--accent);"><i class="fa fa-wallet"></i> Main Escrow Wallet</h6>
+      <div class="mb-3">
+        <label>BSC / ETH Wallet Address</label>
+        <input type="text" name="main_wallet_bsc_eth" class="form-control form-control-xcrow mt-1"
+               value="{{ settings_map.get('main_wallet_bsc_eth').value if settings_map.get('main_wallet_bsc_eth') else '' }}"
+               placeholder="0x…">
+        <small style="color:var(--muted);font-size:0.75rem;">All USDT BEP20, USDT ERC20 and ETH payments go to this address.</small>
+      </div>
+      <div class="mb-3">
+        <label>Bitcoin Wallet Address</label>
+        <input type="text" name="main_wallet_btc" class="form-control form-control-xcrow mt-1"
+               value="{{ settings_map.get('main_wallet_btc').value if settings_map.get('main_wallet_btc') else '' }}"
+               placeholder="bc1… or 1… or 3…">
+        <small style="color:var(--muted);font-size:0.75rem;">All BTC payments go to this address.</small>
+      </div>
+    </div>
+  </div>
+
+  <!-- Deal limits -->
   <div class="col-lg-6">
     <div class="card-xcrow">
       <h6 style="font-weight:600;margin-bottom:18px;color:var(--accent);"><i class="fa fa-sliders"></i> Deal Limits</h6>
@@ -47,23 +72,35 @@
       </div>
       <div class="mb-3">
         <label>Required On-chain Confirmations</label>
-        <input type="number" step="1" min="1" name="required_confirmations" class="form-control form-control-xcrow mt-1"
-               value="{{ settings_map.get('required_confirmations').value if settings_map.get('required_confirmations') else '1' }}">
+        <input type="number" step="1" min="1" max="20" name="required_confirmations" class="form-control form-control-xcrow mt-1"
+               value="{{ settings_map.get('required_confirmations').value if settings_map.get('required_confirmations') else '3' }}">
+        <small style="color:var(--muted);font-size:0.75rem;">BSC = 3 recommended. ETH = 12. BTC = 3.</small>
       </div>
     </div>
   </div>
-  <div class="col-12">
+
+  <!-- Supported networks -->
+  <div class="col-lg-6">
     <div class="card-xcrow">
       <h6 style="font-weight:600;margin-bottom:16px;color:var(--accent);"><i class="fa fa-network-wired"></i> Supported Networks</h6>
       <label>Enabled Networks (comma-separated)</label>
       <input type="text" name="supported_networks" class="form-control form-control-xcrow mt-1"
-             value="{{ settings_map.get('supported_networks').value if settings_map.get('supported_networks') else 'USDT_TRC20,USDT_BEP20,ETH,BTC,SOL,TON,LTC' }}">
-      <small style="color:var(--muted);font-size:0.75rem;">Available: USDT_TRC20, USDT_BEP20, ETH, BTC, SOL, TON, LTC</small>
+             value="{{ settings_map.get('supported_networks').value if settings_map.get('supported_networks') else 'USDT_BEP20,USDT_ERC20,ETH,BTC' }}">
+      <small style="color:var(--muted);font-size:0.75rem;">Available: USDT_BEP20, USDT_ERC20, ETH, BTC, USDT_TRC20</small>
+      <div style="margin-top:16px;padding:12px;background:rgba(255,255,255,0.04);border-radius:8px;font-size:0.78rem;color:var(--muted);">
+        <i class="fa fa-circle-info" style="color:var(--accent);"></i>
+        <strong style="color:var(--fg);">How payment matching works:</strong><br>
+        Each deal gets a unique amount (random cents added). The central monitor scans your
+        main wallet every 30 seconds and matches incoming transactions by exact amount.
+      </div>
     </div>
   </div>
+
 </div>
 <div class="mt-4"><button type="submit" class="btn btn-accent px-4"><i class="fa fa-floppy-disk"></i> Save Settings</button></div>
 </form>
+
+<!-- Current values table -->
 <div class="card-xcrow mt-4">
   <h6 style="font-weight:600;margin-bottom:12px;">All Settings (current values)</h6>
   <table class="table table-xcrow mb-0">
@@ -72,9 +109,9 @@
       {% for key, row in settings_map.items() %}
       <tr>
         <td><code>{{ key }}</code></td>
-        <td>{{ row.value }}</td>
+        <td style="max-width:240px;word-break:break-all;">{{ row.value }}</td>
         <td style="color:var(--muted);font-size:0.8rem;">{{ row.description or '—' }}</td>
-        <td style="color:var(--muted);font-size:0.8rem;">{{ row.updated_at.strftime('%d %b %H:%M') }}</td>
+        <td style="color:var(--muted);font-size:0.8rem;white-space:nowrap;">{{ row.updated_at.strftime('%d %b %H:%M') }}</td>
       </tr>
       {% endfor %}
     </tbody>

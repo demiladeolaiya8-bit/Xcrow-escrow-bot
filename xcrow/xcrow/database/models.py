@@ -34,37 +34,45 @@ class DealStatus(str, PyEnum):
 
 # ── Crypto enum ────────────────────────────────────────────────────────────
 class CryptoNetwork(str, PyEnum):
-    USDT_TRC20 = "USDT_TRC20"
-    USDT_BEP20 = "USDT_BEP20"
-    ETH        = "ETH"
-    BTC        = "BTC"
-    SOL        = "SOL"
-    TON        = "TON"
-    LTC        = "LTC"
+    USDT_TRC20  = "USDT_TRC20"
+    USDT_BEP20  = "USDT_BEP20"
+    USDT_ERC20  = "USDT_ERC20"   # USDT on Ethereum mainnet
+    ETH         = "ETH"           # Native ETH
+    BTC         = "BTC"
+    SOL         = "SOL"
+    TON         = "TON"
+    LTC         = "LTC"
 
 
 CRYPTO_LABELS = {
-    CryptoNetwork.USDT_TRC20: "USDT (TRC20 · Tron)",
-    CryptoNetwork.USDT_BEP20: "USDT (BEP20 · BSC)",
-    CryptoNetwork.ETH:        "ETH (Ethereum)",
-    CryptoNetwork.BTC:        "BTC (Bitcoin)",
-    CryptoNetwork.SOL:        "SOL (Solana)",
-    CryptoNetwork.TON:        "TON",
-    CryptoNetwork.LTC:        "LTC (Litecoin)",
+    CryptoNetwork.USDT_TRC20:  "USDT (TRC20 · Tron)",
+    CryptoNetwork.USDT_BEP20:  "USDT (BEP20 · BSC)",
+    CryptoNetwork.USDT_ERC20:  "USDT (ERC20 · Ethereum)",
+    CryptoNetwork.ETH:         "ETH (Ethereum)",
+    CryptoNetwork.BTC:         "BTC (Bitcoin)",
+    CryptoNetwork.SOL:         "SOL (Solana)",
+    CryptoNetwork.TON:         "TON",
+    CryptoNetwork.LTC:         "LTC (Litecoin)",
 }
 
 CRYPTO_SYMBOLS = {
-    CryptoNetwork.USDT_TRC20: "USDT",
-    CryptoNetwork.USDT_BEP20: "USDT",
-    CryptoNetwork.ETH:        "ETH",
-    CryptoNetwork.BTC:        "BTC",
-    CryptoNetwork.SOL:        "SOL",
-    CryptoNetwork.TON:        "TON",
-    CryptoNetwork.LTC:        "LTC",
+    CryptoNetwork.USDT_TRC20:  "USDT",
+    CryptoNetwork.USDT_BEP20:  "USDT",
+    CryptoNetwork.USDT_ERC20:  "USDT",
+    CryptoNetwork.ETH:         "ETH",
+    CryptoNetwork.BTC:         "BTC",
+    CryptoNetwork.SOL:         "SOL",
+    CryptoNetwork.TON:         "TON",
+    CryptoNetwork.LTC:         "LTC",
 }
 
-# Networks we can auto-monitor (others require admin manual confirmation)
-AUTO_MONITOR_NETWORKS = {CryptoNetwork.USDT_TRC20, CryptoNetwork.USDT_BEP20, CryptoNetwork.ETH}
+# Networks monitored via the central main-wallet monitor (auto-detected)
+AUTO_MONITOR_NETWORKS = {
+    CryptoNetwork.USDT_BEP20,
+    CryptoNetwork.USDT_ERC20,
+    CryptoNetwork.ETH,
+    CryptoNetwork.BTC,
+}
 
 
 # ── Tables ─────────────────────────────────────────────────────────────────
@@ -109,13 +117,13 @@ class Deal(Base):
     title:           Mapped[str | None]  = mapped_column(String(512))
     amount:          Mapped[float | None] = mapped_column(Float)
     crypto:          Mapped[str | None]  = mapped_column(String(32))
-    fee_percent:     Mapped[float]       = mapped_column(Float, default=1.0)   # snapshot at deal creation
+    fee_percent:     Mapped[float]       = mapped_column(Float, default=1.0)
     fee_amount:      Mapped[float]       = mapped_column(Float, default=0.0)
     total_amount:    Mapped[float]       = mapped_column(Float, default=0.0)
 
-    # Payment
+    # Payment — deposit_address now holds the main wallet address for the network
     deposit_address: Mapped[str | None]  = mapped_column(String(128))
-    wallet_index:    Mapped[int | None]  = mapped_column(Integer)
+    wallet_index:    Mapped[int | None]  = mapped_column(Integer)   # kept for legacy deals
     tx_hash:         Mapped[str | None]  = mapped_column(String(128))
 
     # Seller payout
@@ -128,7 +136,7 @@ class Deal(Base):
     # Pinned message
     pinned_msg_id:   Mapped[int | None]  = mapped_column(BigInteger)
 
-    # Block cursor — prevents BEP20/ETH monitor from rescanning from genesis
+    # Block cursor — used by central monitor to avoid rescanning genesis
     last_checked_block: Mapped[int]      = mapped_column(Integer, default=0)
 
     # Timestamps
@@ -145,14 +153,15 @@ class Deal(Base):
 class Transaction(Base):
     __tablename__ = "transactions"
 
-    id:          Mapped[int]    = mapped_column(Integer, primary_key=True, autoincrement=True)
-    deal_id:     Mapped[int]    = mapped_column(Integer, ForeignKey("deals.id"), nullable=False)
-    tx_hash:     Mapped[str]    = mapped_column(String(128), nullable=False)
-    amount:      Mapped[float]  = mapped_column(Float, nullable=False)
-    crypto:      Mapped[str]    = mapped_column(String(32), nullable=False)
-    from_addr:   Mapped[str | None] = mapped_column(String(128))
-    confirmed:   Mapped[bool]   = mapped_column(Boolean, default=False)
-    created_at:  Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    id:            Mapped[int]    = mapped_column(Integer, primary_key=True, autoincrement=True)
+    deal_id:       Mapped[int]    = mapped_column(Integer, ForeignKey("deals.id"), nullable=False)
+    tx_hash:       Mapped[str]    = mapped_column(String(128), nullable=False)
+    amount:        Mapped[float]  = mapped_column(Float, nullable=False)
+    crypto:        Mapped[str]    = mapped_column(String(32), nullable=False)
+    from_addr:     Mapped[str | None] = mapped_column(String(128))
+    confirmations: Mapped[int]    = mapped_column(Integer, default=0)
+    confirmed:     Mapped[bool]   = mapped_column(Boolean, default=False)
+    created_at:    Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     deal: Mapped["Deal"] = relationship("Deal", back_populates="transactions")
 
@@ -188,9 +197,9 @@ class AuditLog(Base):
     __tablename__ = "audit_logs"
 
     id:         Mapped[int]          = mapped_column(Integer, primary_key=True, autoincrement=True)
-    actor:      Mapped[str]          = mapped_column(String(128), nullable=False)   # "admin_web", "bot_monitor", etc.
+    actor:      Mapped[str]          = mapped_column(String(128), nullable=False)
     action:     Mapped[str]          = mapped_column(String(128), nullable=False)
-    target:     Mapped[str | None]   = mapped_column(String(256))                   # deal_uid, user_id, etc.
+    target:     Mapped[str | None]   = mapped_column(String(256))
     detail:     Mapped[str | None]   = mapped_column(Text)
     created_at: Mapped[datetime]     = mapped_column(DateTime, server_default=func.now())
 
@@ -204,7 +213,7 @@ class SupportTicket(Base):
     username:    Mapped[str | None]   = mapped_column(String(64))
     subject:     Mapped[str]          = mapped_column(String(256), nullable=False)
     message:     Mapped[str]          = mapped_column(Text, nullable=False)
-    status:      Mapped[str]          = mapped_column(String(32), default="open")   # open | resolved | closed
+    status:      Mapped[str]          = mapped_column(String(32), default="open")
     reply:       Mapped[str | None]   = mapped_column(Text)
     created_at:  Mapped[datetime]     = mapped_column(DateTime, server_default=func.now())
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime)
