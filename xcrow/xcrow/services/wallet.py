@@ -1,4 +1,4 @@
-"""HD wallet address derivation using BIP39/BIP44."""
+"""HD wallet address + private key derivation using BIP39/BIP44."""
 from __future__ import annotations
 from bip_utils import (
     Bip39SeedGenerator,
@@ -30,26 +30,36 @@ class WalletService:
                 "Generate one with:  python pyrogram_auth.py --mnemonic"
             )
         if self._seed is None:
-            # bip_utils 2.x: pass mnemonic string directly — no FromPhrase needed
+            # bip_utils 2.x: pass mnemonic string directly
             self._seed = Bip39SeedGenerator(self._mnemonic).Generate(settings.WALLET_PASSPHRASE)
         return self._seed
 
-    def derive_address(self, network: str, index: int) -> str:
-        if network == CryptoNetwork.TON:
-            return self._derive_ton(index)
-
+    def _bip44_child(self, network: str, index: int):
         coin = COIN_MAP.get(network)
         if coin is None:
-            raise ValueError(f"Unsupported network for HD derivation: {network}")
-
+            raise ValueError(f"Unsupported network: {network}")
         seed = self._get_seed()
-        child = (
+        return (
             Bip44.FromSeed(seed, coin)
             .Purpose().Coin().Account(0)
             .Change(Bip44Changes.CHAIN_EXT)
             .AddressIndex(index)
         )
-        return child.PublicKey().ToAddress()
+
+    def derive_address(self, network: str, index: int) -> str:
+        if network == CryptoNetwork.TON:
+            return self._derive_ton(index)
+        return self._bip44_child(network, index).PublicKey().ToAddress()
+
+    def derive_private_key(self, network: str, index: int) -> str:
+        """
+        Return the raw hex private key for the HD wallet at (network, index).
+        Used by transfer.py to sign auto-release transactions.
+        The key is derived in-memory and never stored.
+        """
+        if network == CryptoNetwork.TON:
+            raise ValueError("TON private key derivation not supported for auto-release")
+        return self._bip44_child(network, index).PrivateKey().Raw().ToHex()
 
     def _derive_ton(self, index: int) -> str:
         try:

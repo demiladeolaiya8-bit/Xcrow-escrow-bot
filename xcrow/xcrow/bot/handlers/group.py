@@ -642,18 +642,14 @@ async def cb_delivery_ok(callback: CallbackQuery, bot: Bot) -> None:
         f"Seller wallet: <code>{deal.seller_wallet}</code>\n"
         f"Network: {CRYPTO_LABELS.get(deal.seller_network, deal.seller_network)}\n"
         f"Amount: <b>{deal.amount:,.4f} {symbol}</b>\n\n"
-        f"⏳ Processing… Admin will confirm the transfer.",
+        f"⚡ Processing automatically…",
     )
     await update_pinned(bot, deal)
 
-    await notify_admins(
-        bot,
-        f"🔓 <b>Deal {uid} — Release Required</b>\n\n"
-        f"Buyer confirmed delivery. Please release funds.\n\n"
-        f"Seller wallet: <code>{deal.seller_wallet}</code>\n"
-        f"Network: {deal.seller_network}\n"
-        f"Amount: {deal.amount} {symbol}",
-    )
+    # ── Auto-release in background ────────────────────────────────────────
+    import asyncio
+    from services.transfer import auto_release_deal
+    asyncio.create_task(auto_release_deal(deal, bot))
 
 
 # ══════════════════════════════════════════════════════════════════════════

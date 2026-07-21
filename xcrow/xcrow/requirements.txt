@@ -32,3 +32,7 @@ Pillow==11.0.0
 
 # Logging
 loguru==0.7.2
+
+# Auto-release blockchain transfers
+web3==7.3.0
+tronpy==0.4.0
