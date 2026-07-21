@@ -1,13 +1,11 @@
 """
 BEP20 USDT deposit detector.
 
-Detection strategy:
-1. BscScan V2 REST API  — primary (official BSC data, key in .env)
-2. Public RPC eth_getLogs — fallback (Ankr excluded — it bans getLogs on free tier)
+Detection strategy (RPC-only — BscScan blocked on most datacenter IPs):
+  Tries each RPC node in sequence until one returns valid eth_getLogs data.
+  Nodes that ban getLogs (Ankr -32005) are skipped automatically.
 """
 from __future__ import annotations
-import asyncio
-import json
 import aiohttp
 from loguru import logger
 from config import settings
@@ -16,18 +14,24 @@ USDT_BEP20_CONTRACT = "0x55d398326f99059fF775485246999027B3197955"
 BEP20_DECIMALS      = 18
 _TRANSFER_TOPIC     = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
 
-# Ankr intentionally excluded — its free tier rejects eth_getLogs with -32005
+# Ordered by reliability for datacenter/VPS IPs and getLogs support.
+# Ankr excluded — free tier blocks eth_getLogs with -32005.
+# BscScan excluded — blocks cloud IPs, returns HTML instead of JSON.
 _RPC_NODES = [
-    "https://bsc-rpc.publicnode.com",
-    "https://1rpc.io/bnb",
-    "https://binance.llamarpc.com",
+    "https://bsc-rpc.publicnode.com",         # PublicNode — reliable, allows getLogs
     "https://bsc.publicnode.com",
+    "https://1rpc.io/bnb",                    # 1RPC — privacy-first, no rate limit on getLogs
+    "https://binance.llamarpc.com",           # LlamaRPC
+    "https://rpc-bsc.48.club",               # 48 Club — BSC validator pool
     "https://bsc-dataseed1.binance.org/",
     "https://bsc-dataseed2.binance.org/",
     "https://bsc-dataseed3.binance.org/",
     "https://bsc-dataseed4.binance.org/",
     "https://bsc-dataseed1.defibit.io/",
     "https://bsc-dataseed1.ninicoin.io/",
+    "https://bsc-dataseed2.defibit.io/",
+    "https://bsc-dataseed3.defibit.io/",
+    "https://bsc-dataseed2.ninicoin.io/",
 ]
 
 
@@ -35,87 +39,7 @@ def _pad(addr: str) -> str:
     return "0x" + "0" * 24 + addr.lower().removeprefix("0x")
 
 
-# ── BscScan V2 (primary) ──────────────────────────────────────────────────
-
-async def _bscscan_fetch(session: aiohttp.ClientSession, address: str) -> list[dict]:
-    """Call BscScan V2 tokentx endpoint. Retries once on empty/non-JSON body."""
-    url    = "https://api.bscscan.com/v2/api"
-    params = {
-        "chainid":         "56",
-        "module":          "account",
-        "action":          "tokentx",
-        "contractaddress": USDT_BEP20_CONTRACT,
-        "address":         address,
-        "sort":            "desc",
-        "apikey":          settings.BSCSCAN_API_KEY,
-    }
-
-    for attempt in (1, 2):           # retry once on empty body
-        try:
-            async with session.get(
-                url, params=params, timeout=aiohttp.ClientTimeout(total=25)
-            ) as resp:
-                text = await resp.text()
-
-            if not text or not text.strip():
-                logger.warning(f"BscScan empty body (attempt {attempt}), retrying…")
-                await asyncio.sleep(2)
-                continue
-
-            data = json.loads(text)
-        except json.JSONDecodeError as e:
-            logger.warning(f"BscScan bad JSON (attempt {attempt}): {e} | body: {text[:120]}")
-            await asyncio.sleep(2)
-            continue
-
-        status = data.get("status")
-        msg    = data.get("message", "")
-        result = data.get("result", "")
-
-        if status == "1":
-            return result or []
-
-        # "No transactions found" is normal — not an error
-        if "No transactions" in str(result) or "No transactions" in msg:
-            return []
-
-        raise RuntimeError(f"BscScan V2: {msg} — {result}")
-
-    raise RuntimeError("BscScan returned empty/invalid body after retry")
-
-
-async def _check_via_bscscan(address: str, min_amount: float) -> dict | None:
-    async with aiohttp.ClientSession() as session:
-        txs = await _bscscan_fetch(session, address)
-
-    total = 0.0
-    best: dict | None = None
-    for tx in txs:
-        try:
-            if tx.get("to", "").lower() != address.lower():
-                continue
-            raw = int(tx.get("value", "0"))
-            amt = raw / (10 ** BEP20_DECIMALS)
-            if int(tx.get("confirmations", "0")) < max(1, settings.CONFIRMATION_BLOCKS):
-                continue
-            total += amt
-            if best is None:
-                best = {
-                    "tx_hash": tx.get("hash", ""),
-                    "amount":  amt,
-                    "from":    tx.get("from", ""),
-                    "network": "USDT_BEP20",
-                }
-        except Exception:
-            continue
-
-    if total >= min_amount * 0.99 and best:
-        best["amount"] = total
-        return best
-    return None
-
-
-# ── RPC eth_getLogs (fallback) ────────────────────────────────────────────
+# ── RPC helpers ───────────────────────────────────────────────────────────
 
 async def _rpc_post(session: aiohttp.ClientSession, url: str, method: str, params: list):
     payload = {"jsonrpc": "2.0", "id": 1, "method": method, "params": params}
@@ -196,30 +120,17 @@ async def check_bep20_deposit(
 ) -> dict | None:
     """
     Detect USDT BEP20 deposit ≥ min_amount to address.
+    Uses RPC eth_getLogs across multiple public BSC nodes.
     Never raises — returns None on any failure.
     """
-    # 1. BscScan V2 — primary
-    if settings.BSCSCAN_API_KEY:
-        try:
-            result = await _check_via_bscscan(address, min_amount)
-            if result:
-                logger.info(
-                    f"✅ BEP20 confirmed (BscScan): {result['amount']:.6f} USDT "
-                    f"→ {address[:10]}… tx {result['tx_hash'][:14]}…"
-                )
-            return result
-        except Exception as exc:
-            logger.warning(f"BscScan V2 failed ({exc}), falling back to RPC…")
-
-    # 2. RPC eth_getLogs — fallback
     try:
         result = await _check_via_rpc(address, min_amount, start_block)
         if result:
             logger.info(
-                f"✅ BEP20 confirmed (RPC): {result['amount']:.6f} USDT "
+                f"✅ BEP20 confirmed: {result['amount']:.6f} USDT "
                 f"→ {address[:10]}… tx {result['tx_hash'][:14]}…"
             )
         return result
     except Exception as exc:
-        logger.error(f"check_bep20_deposit: RPC also failed for {address}: {exc}")
+        logger.error(f"check_bep20_deposit failed for {address}: {exc}")
         return None
