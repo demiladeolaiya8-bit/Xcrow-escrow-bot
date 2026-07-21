@@ -60,14 +60,26 @@ _ERC20_ABI = [{
 
 # ── Web3 helpers (BSC + ETH) ──────────────────────────────────────────────
 
+def _inject_poa(w3) -> None:
+    """Inject POA middleware — compatible with web3 v6 and v7."""
+    try:
+        from web3.middleware import ExtraDataToPOAMiddleware   # web3 v7
+        w3.middleware_onion.inject(ExtraDataToPOAMiddleware, layer=0)
+    except ImportError:
+        try:
+            from web3.middleware import geth_poa_middleware    # web3 v6
+            w3.middleware_onion.inject(geth_poa_middleware, layer=0)
+        except ImportError:
+            pass  # not critical for sending txs
+
+
 async def _w3(rpcs: list[str]):
     from web3 import AsyncWeb3
-    from web3.middleware import ExtraDataToPOAMiddleware
     last = RuntimeError("no rpcs")
     for url in rpcs:
         try:
             w = AsyncWeb3(AsyncWeb3.AsyncHTTPProvider(url, request_kwargs={"timeout": 12}))
-            w.middleware_onion.inject(ExtraDataToPOAMiddleware, layer=0)
+            _inject_poa(w)
             _ = await asyncio.wait_for(w.eth.block_number, timeout=10)
             return w
         except Exception as e:
