@@ -91,7 +91,7 @@ async def _send_bnb(gas_private_key: str, to: str, amount_bnb: float) -> str:
         "chainId": 56,
     }
     signed = acct.sign_transaction(tx)
-    h = await w3.eth.send_raw_transaction(signed.raw_transaction)
+    h = await w3.eth.send_raw_transaction(signed.rawTransaction)
     return "0x" + h.hex()
 
 
@@ -117,7 +117,7 @@ async def _send_bep20_usdt(private_key: str, to: str, amount: float) -> str:
         "chainId": 56,
     })
     signed = acct.sign_transaction(tx)
-    h = await w3.eth.send_raw_transaction(signed.raw_transaction)
+    h = await w3.eth.send_raw_transaction(signed.rawTransaction)
     return "0x" + h.hex()
 
 
@@ -137,7 +137,7 @@ async def _send_eth(private_key: str, to: str, amount: float) -> str:
         "chainId": 1,
     }
     signed = acct.sign_transaction(tx)
-    h = await w3.eth.send_raw_transaction(signed.raw_transaction)
+    h = await w3.eth.send_raw_transaction(signed.rawTransaction)
     return "0x" + h.hex()
 
 
