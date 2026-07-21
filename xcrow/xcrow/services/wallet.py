@@ -1,7 +1,7 @@
 """HD wallet address derivation using BIP39/BIP44."""
 from __future__ import annotations
 from bip_utils import (
-    Bip39SeedGenerator, Bip39Mnemonic,
+    Bip39SeedGenerator,
     Bip44, Bip44Coins, Bip44Changes,
 )
 from loguru import logger
@@ -30,8 +30,8 @@ class WalletService:
                 "Generate one with:  python pyrogram_auth.py --mnemonic"
             )
         if self._seed is None:
-            m = Bip39Mnemonic.FromPhrase(self._mnemonic)
-            self._seed = Bip39SeedGenerator(m).Generate(settings.WALLET_PASSPHRASE)
+            # bip_utils 2.x: pass mnemonic string directly — no FromPhrase needed
+            self._seed = Bip39SeedGenerator(self._mnemonic).Generate(settings.WALLET_PASSPHRASE)
         return self._seed
 
     def derive_address(self, network: str, index: int) -> str:
