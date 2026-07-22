@@ -118,10 +118,14 @@ async function connectToWhatsApp() {
   sock = makeWASocket({
     version,
     logger,
-    auth:           state,
-    browser:        ['Xcrow Escrow Bot', 'Chrome', '1.0.0'],
+    auth:              state,
+    browser:           ['Xcrow Escrow Bot', 'Chrome', '1.0.0'],
     markOnlineOnConnect: false,
     generateHighQualityLinkPreview: false,
+    syncFullHistory:   false,   // skip heavy history sync on first connect
+    connectTimeoutMs:  120_000, // 2 min timeout (default 20s is too short on VPS)
+    keepAliveIntervalMs: 15_000,
+    retryRequestDelayMs: 2_000,
   });
 
   // ── Creds update ──────────────────────────────────────────────────────
