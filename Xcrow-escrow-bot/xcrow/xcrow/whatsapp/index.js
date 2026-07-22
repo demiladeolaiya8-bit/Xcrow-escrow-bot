@@ -134,10 +134,10 @@ async function connectToWhatsApp() {
     markOnlineOnConnect: false,
     generateHighQualityLinkPreview: false,
     syncFullHistory:     false,    // skip heavy history sync
-    connectTimeoutMs:    180_000,  // 3 min — generous for slow VPS handshake
-    keepAliveIntervalMs: 10_000,
-    retryRequestDelayMs: 2_000,
-    defaultQueryTimeoutMs: 60_000,
+    connectTimeoutMs:      180_000,  // 3 min overall connection timeout
+    keepAliveIntervalMs:   10_000,
+    retryRequestDelayMs:   2_000,
+    defaultQueryTimeoutMs: undefined, // disable per-query timeout — fixes 408 on init
   });
 
   // ── Creds update ──────────────────────────────────────────────────────
