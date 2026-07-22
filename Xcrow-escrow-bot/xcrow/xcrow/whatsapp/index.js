@@ -111,21 +111,33 @@ async function pollFundedDeals() {
 
 // ── Main connection ────────────────────────────────────────────────────────
 
+let pollInterval   = null;   // prevent duplicate poll timers on reconnect
+let reconnectDelay = 5_000;  // starts at 5s, backs off up to 60s
+
 async function connectToWhatsApp() {
   const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
-  const { version }          = await fetchLatestBaileysVersion();
+
+  // Fetch latest version with fallback so a network hiccup doesn't crash startup
+  let version;
+  try {
+    ({ version } = await fetchLatestBaileysVersion());
+  } catch {
+    version = [2, 3000, 1015901307]; // known-good fallback
+    console.warn('⚠️  Could not fetch latest Baileys version — using fallback');
+  }
 
   sock = makeWASocket({
     version,
     logger,
-    auth:              state,
-    browser:           ['Xcrow Escrow Bot', 'Chrome', '1.0.0'],
+    auth:                state,
+    browser:             ['Xcrow Escrow Bot', 'Chrome', '1.0.0'],
     markOnlineOnConnect: false,
     generateHighQualityLinkPreview: false,
-    syncFullHistory:   false,   // skip heavy history sync on first connect
-    connectTimeoutMs:  120_000, // 2 min timeout (default 20s is too short on VPS)
-    keepAliveIntervalMs: 15_000,
+    syncFullHistory:     false,    // skip heavy history sync
+    connectTimeoutMs:    180_000,  // 3 min — generous for slow VPS handshake
+    keepAliveIntervalMs: 10_000,
     retryRequestDelayMs: 2_000,
+    defaultQueryTimeoutMs: 60_000,
   });
 
   // ── Creds update ──────────────────────────────────────────────────────
@@ -134,29 +146,35 @@ async function connectToWhatsApp() {
   // ── Connection events ─────────────────────────────────────────────────
   sock.ev.on('connection.update', async ({ connection, lastDisconnect, qr }) => {
     if (qr) {
-      console.log('\n📱 Scan this QR code with WhatsApp (Settings → Linked Devices → Link a Device):\n');
+      console.log('\n📱 Scan this QR code with WhatsApp Business (Settings → Linked Devices → Link a Device):\n');
       qrTerminal.generate(qr, { small: true });
     }
+
     if (connection === 'open') {
       console.log('✅ WhatsApp connected! Bot is live.');
-      // Start polling for funded deals
-      setInterval(pollFundedDeals, 30_000);
-      pollFundedDeals(); // immediate first run
+      reconnectDelay = 5_000; // reset backoff on successful connect
+      // Only start the poll interval once
+      if (!pollInterval) {
+        pollFundedDeals();
+        pollInterval = setInterval(pollFundedDeals, 30_000);
+      }
     }
+
     if (connection === 'close') {
-      const shouldReconnect =
-        lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
-      console.log(
-        '🔌 WhatsApp disconnected:',
-        lastDisconnect?.error?.message,
-        '— reconnecting:', shouldReconnect
-      );
-      if (shouldReconnect) {
-        setTimeout(connectToWhatsApp, 5_000);
-      } else {
-        console.error('❌ Logged out. Delete auth_info/ and restart to scan a new QR.');
+      const statusCode = lastDisconnect?.error?.output?.statusCode;
+      const loggedOut  = statusCode === DisconnectReason.loggedOut;
+
+      console.log(`🔌 Disconnected (code ${statusCode}): ${lastDisconnect?.error?.message}`);
+
+      if (loggedOut) {
+        console.error('❌ Logged out from WhatsApp. Delete auth_info/ and restart to scan a new QR.');
         process.exit(1);
       }
+
+      // 408 = init query timeout — session is fine, just retry
+      console.log(`↩️  Reconnecting in ${reconnectDelay / 1000}s…`);
+      setTimeout(connectToWhatsApp, reconnectDelay);
+      reconnectDelay = Math.min(reconnectDelay * 2, 60_000); // exponential backoff up to 60s
     }
   });
 
