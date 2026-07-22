@@ -1,7 +1,7 @@
 FROM node:20-alpine
 
 # System deps for sharp (QR image generation)
-RUN apk add --no-cache python3 make g++ vips-dev
+RUN apk add --no-cache python3 make g++ vips-dev git
 
 WORKDIR /app
 COPY package.json .
