@@ -232,6 +232,43 @@ async function handleMessage(waId, text, pushName) {
     return;
   }
 
+  // ── Accept / reject deal invite ─────────────────────────────────────────
+  if (msg.startsWith('accept ')) {
+    clearState(waId);
+    const uid  = msg.split(' ')[1]?.toUpperCase();
+    const deal = uid ? await db.getDealByUid(uid) : null;
+    if (!deal) { await _send(waId, '❌ Deal not found. Check the ID and try again.'); return; }
+    const notes = JSON.parse(deal.admin_notes || '{}');
+    if (notes.buyer_wa !== waId) { await _send(waId, '❌ You are not the buyer for this deal.'); return; }
+    if (deal.status === 'awaiting_payment' || deal.status === 'funded') {
+      // Already accepted — just resend instructions
+      await sendPaymentInstructions(waId, deal);
+      return;
+    }
+    await db.updateDeal(deal.id, { status: 'awaiting_payment' });
+    await sendPaymentInstructions(waId, deal);
+    if (notes.seller_wa) {
+      await _send(notes.seller_wa,
+        `✅ *Buyer accepted!*\n\nDeal \`${uid}\` — buyer has accepted and received payment instructions.\n\nYou'll be notified when payment arrives.`
+      );
+    }
+    return;
+  }
+
+  if (msg.startsWith('reject ')) {
+    clearState(waId);
+    const uid  = msg.split(' ')[1]?.toUpperCase();
+    const deal = uid ? await db.getDealByUid(uid) : null;
+    if (!deal) { await _send(waId, '❌ Deal not found.'); return; }
+    const notes = JSON.parse(deal.admin_notes || '{}');
+    await db.updateDeal(deal.id, { status: 'cancelled' });
+    await _send(waId, `❌ Deal \`${uid}\` rejected.`);
+    if (notes.seller_wa) {
+      await _send(notes.seller_wa, `❌ The buyer rejected deal \`${uid}\`.`);
+    }
+    return;
+  }
+
   // ── New deal flow ────────────────────────────────────────────────────────
   if (msg === 'new deal' || msg === 'new' || msg === 'create') {
     setState(waId, { step: 'title', pushName });
@@ -402,38 +439,6 @@ async function handleMessage(waId, text, pushName) {
       await _send(waId, `Send *help* to see available commands.`);
   }
 
-  // ── Accept / reject deal invite ──────────────────────────────────────────
-  if (msg.startsWith('accept ')) {
-    clearState(waId);
-    const uid  = msg.split(' ')[1]?.toUpperCase();
-    const deal = uid ? await db.getDealByUid(uid) : null;
-    if (!deal) { await _send(waId, '❌ Deal not found.'); return; }
-    const notes = JSON.parse(deal.admin_notes || '{}');
-    if (notes.buyer_wa !== waId) { await _send(waId, '❌ You are not the buyer for this deal.'); return; }
-    await db.updateDeal(deal.id, { status: 'awaiting_payment' });
-    await sendPaymentInstructions(waId, deal);
-    const sellerWa = notes.seller_wa;
-    if (sellerWa) {
-      await _send(sellerWa,
-        `✅ *Buyer accepted!*\n\nDeal \`${uid}\` — buyer has accepted and received payment instructions.\n\nYou'll be notified when payment arrives.`
-      );
-    }
-    return;
-  }
-
-  if (msg.startsWith('reject ')) {
-    clearState(waId);
-    const uid  = msg.split(' ')[1]?.toUpperCase();
-    const deal = uid ? await db.getDealByUid(uid) : null;
-    if (!deal) { await _send(waId, '❌ Deal not found.'); return; }
-    const notes = JSON.parse(deal.admin_notes || '{}');
-    await db.updateDeal(deal.id, { status: 'cancelled' });
-    await _send(waId, `❌ Deal \`${uid}\` rejected.`);
-    if (notes.seller_wa) {
-      await _send(notes.seller_wa, `❌ The buyer rejected deal \`${uid}\`.`);
-    }
-    return;
-  }
 }
 
 module.exports = { init, handleMessage, sendPaymentInstructions };
