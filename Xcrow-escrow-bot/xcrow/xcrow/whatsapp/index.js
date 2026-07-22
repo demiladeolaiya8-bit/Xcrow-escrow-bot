@@ -13,9 +13,10 @@ const {
   DisconnectReason,
   fetchLatestBaileysVersion,
 } = require('@whiskeysockets/baileys');
-const pino   = require('pino');
-const fs     = require('fs');
-const path   = require('path');
+const pino        = require('pino');
+const fs          = require('fs');
+const path        = require('path');
+const qrTerminal  = require('qrcode-terminal');
 
 const dealHandler = require('./handlers/deal');
 const db          = require('./db');
@@ -118,7 +119,6 @@ async function connectToWhatsApp() {
     version,
     logger,
     auth:           state,
-    printQRInTerminal: true,
     browser:        ['Xcrow Escrow Bot', 'Chrome', '1.0.0'],
     markOnlineOnConnect: false,
     generateHighQualityLinkPreview: false,
@@ -130,7 +130,8 @@ async function connectToWhatsApp() {
   // ── Connection events ─────────────────────────────────────────────────
   sock.ev.on('connection.update', async ({ connection, lastDisconnect, qr }) => {
     if (qr) {
-      console.log('\n📱 Scan the QR code above with WhatsApp (Linked Devices → Link a Device)\n');
+      console.log('\n📱 Scan this QR code with WhatsApp (Settings → Linked Devices → Link a Device):\n');
+      qrTerminal.generate(qr, { small: true });
     }
     if (connection === 'open') {
       console.log('✅ WhatsApp connected! Bot is live.');
