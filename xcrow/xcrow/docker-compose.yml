@@ -42,5 +42,24 @@ services:
       retries: 3
       start_period: 15s
 
+  whatsapp:
+    build:
+      context: ./whatsapp
+      dockerfile: Dockerfile
+    container_name: xcrow_whatsapp
+    restart: always
+    env_file: .env
+    environment:
+      - DATABASE_URL_SYNC=postgresql://xcrow:xcrowpass@postgres:5432/xcrow
+      - MAIN_WALLET_BSC_ETH=${MAIN_WALLET_BSC_ETH}
+      - MAIN_WALLET_BTC=${MAIN_WALLET_BTC}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./whatsapp/auth_info:/app/auth_info
+    stdin_open: true
+    tty: true
+
 volumes:
   pgdata:
