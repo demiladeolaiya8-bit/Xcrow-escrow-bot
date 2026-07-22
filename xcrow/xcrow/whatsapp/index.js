@@ -12,9 +12,6 @@ const {
   useMultiFileAuthState,
   DisconnectReason,
   fetchLatestBaileysVersion,
-  makeInMemoryStore,
-  jidNormalizedUser,
-  downloadMediaMessage,
 } = require('@whiskeysockets/baileys');
 const pino   = require('pino');
 const fs     = require('fs');
@@ -32,9 +29,6 @@ const logger = pino({
 // ── Auth storage ───────────────────────────────────────────────────────────
 const AUTH_DIR = path.join(__dirname, 'auth_info');
 fs.mkdirSync(AUTH_DIR, { recursive: true });
-
-// ── In-memory message store (optional, helps resolve quoted messages) ──────
-const store = makeInMemoryStore({ logger });
 
 let sock;
 
@@ -129,8 +123,6 @@ async function connectToWhatsApp() {
     markOnlineOnConnect: false,
     generateHighQualityLinkPreview: false,
   });
-
-  store.bind(sock.ev);
 
   // ── Creds update ──────────────────────────────────────────────────────
   sock.ev.on('creds.update', saveCreds);
