@@ -16,20 +16,26 @@ pool.on('error', (err) => {
 
 // ── Deals ──────────────────────────────────────────────────────────────────
 
-async function createDeal({ dealUid, creatorWaId, title, amount, crypto, feePercent, feeAmount, totalAmount, depositAddress, sellerWallet, sellerWaId, buyerWaId }) {
+async function createDeal({ dealUid, creatorWaId, title, amount, crypto, feePercent, feeAmount, totalAmount, depositAddress, sellerWallet, sellerWaId, buyerWaId, groupJid, status }) {
   const res = await pool.query(`
     INSERT INTO deals
       (deal_uid, creator_id, title, amount, crypto,
        fee_percent, fee_amount, total_amount, deposit_address,
        seller_wallet, status,
        admin_notes)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'step5_pending', $11)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
     RETURNING id, deal_uid
   `, [
     dealUid, 0, title, amount, crypto,
     feePercent, feeAmount, totalAmount, depositAddress,
     sellerWallet,
-    JSON.stringify({ seller_wa: sellerWaId, buyer_wa: buyerWaId, platform: 'whatsapp' }),
+    status || 'step5_pending',
+    JSON.stringify({
+      seller_wa: sellerWaId,
+      buyer_wa:  buyerWaId || null,
+      group_jid: groupJid  || null,
+      platform:  'whatsapp',
+    }),
   ]);
   return res.rows[0];
 }
